@@ -1,11 +1,11 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "moonscript"
-version = "0.2.3-2"
+version = "0.2.3-3"
 
 -- LuaDist source
 source = {
-  tag = "0.2.3-2",
+  tag = "0.2.3-3",
   url = "git://github.com/LuaDist-testing/moonscript.git"
 }
 -- Original source
@@ -23,7 +23,7 @@ description = {
 
 dependencies = {
 	"lua >= 5.1",
-	"lpeg >= 0.10",
+	"lpeg >= 0.10, ~= 0.11",
 	"alt-getopt >= 0.7",
 	"luafilesystem >= 1.5"
 }
