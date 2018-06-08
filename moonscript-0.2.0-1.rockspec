@@ -1,21 +1,21 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "moonscript"
-version = "0.1.0-1"
+version = "0.2.0-1"
 
 -- LuaDist source
 source = {
-  tag = "0.1.0-1",
+  tag = "0.2.0-1",
   url = "git://github.com/LuaDist-testing/moonscript.git"
 }
 -- Original source
 -- source = {
 -- 	url = "git://github.com/leafo/moonscript.git",
--- 	branch = "v0.1.0"
+-- 	branch = "v0.2.0"
 -- }
 
 description = {
-	summary = "A little language that compiles to Lua",
+	summary = "A programmer friendly language that compiles to Lua",
 	homepage = "http://moonscript.org",
 	maintainer = "Leaf Corcoran <leafot@gmail.com>",
 	license = "MIT"
@@ -33,18 +33,21 @@ build = {
 	modules = {
 		["moonscript"] = "moonscript/init.lua",
 		["moonscript.compile"] = "moonscript/compile.lua",
-		["moonscript.compile.line"] = "moonscript/compile/line.lua",
+		["moonscript.compile.statement"] = "moonscript/compile/statement.lua",
 		["moonscript.compile.value"] = "moonscript/compile/value.lua",
 		["moonscript.compile.format"] = "moonscript/compile/format.lua",
-		["moonscript.compile.types"] = "moonscript/compile/types.lua",
+		["moonscript.transform"] = "moonscript/transform.lua",
+		["moonscript.types"] = "moonscript/types.lua",
 		["moonscript.parse"] = "moonscript/parse.lua",
 		["moonscript.dump"] = "moonscript/dump.lua",
 		["moonscript.data"] = "moonscript/data.lua",
 		["moonscript.util"] = "moonscript/util.lua",
 		["moonscript.errors"] = "moonscript/errors.lua",
 		["moonscript.version"] = "moonscript/version.lua",
+		["moon"] = "moon/init.lua",
+		["moon.all"] = "moon/all.lua",
 	},
 	install = {
-		bin = { "moon", "moonc" }
+		bin = { "bin/moon", "bin/moonc" }
 	}
 }

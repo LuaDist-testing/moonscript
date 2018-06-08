@@ -1,8 +1,16 @@
 module("moonscript.compile", package.seeall)
 local util = require("moonscript.util")
 local data = require("moonscript.data")
-local itwos = util.itwos
-local Set, ntype = data.Set, data.ntype
+local Set
+do
+  local _table_0 = require("moonscript.data")
+  Set = _table_0.Set
+end
+local ntype
+do
+  local _table_0 = require("moonscript.types")
+  ntype = _table_0.ntype
+end
 local concat, insert = table.concat, table.insert
 indent_char = "  "
 user_error = function(...)
@@ -10,37 +18,6 @@ user_error = function(...)
     "user-error",
     ...
   })
-end
-local manual_return = Set({
-  "foreach",
-  "for",
-  "while"
-})
-default_return = function(exp)
-  local t = ntype(exp)
-  if t == "chain" and exp[2] == "return" then
-    local items = {
-      "explist"
-    }
-    do
-      local _item_0 = exp[3][2]
-      for _index_0 = 1, #_item_0 do
-        local v = _item_0[_index_0]
-        insert(items, v)
-      end
-    end
-    return {
-      "return",
-      items
-    }
-  elseif manual_return[t] then
-    return exp
-  else
-    return {
-      "return",
-      exp
-    }
-  end
 end
 moonlib = {
   bind = function(tbl, name)
@@ -55,10 +32,6 @@ moonlib = {
     })
   end
 }
-cascading = Set({
-  "if",
-  "with"
-})
 non_atomic = Set({
   "update"
 })
@@ -72,9 +45,6 @@ has_value = function(node)
 end
 is_non_atomic = function(node)
   return non_atomic[ntype(node)]
-end
-is_slice = function(node)
-  return ntype(node) == "chain" and ntype(node[#node]) == "slice"
 end
 count_lines = function(str)
   local count = 1

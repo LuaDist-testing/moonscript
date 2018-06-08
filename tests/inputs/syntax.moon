@@ -138,7 +138,7 @@ j -= "hello"
 y *= 2
 y /= 100
 m %= 2
-
+hello ..= "world"
 
 x = 0
 (if ntype(v) == "fndef" then x += 1) for v in *values
@@ -185,3 +185,39 @@ else
 
   okay
 
+
+-- test names containing keywords
+x = notsomething
+y = ifsomething
+z = x and b
+z = x andb
+
+
+-- undelimited tables
+
+while 10 > something
+  something: "world"
+    print "yeah"
+
+x =
+  okay: sure
+
+yeah
+  okay: man
+  sure: sir
+
+hello "no comma"
+ yeah: dada
+ another: world
+
+hello "comma",
+ something: hello_world
+ frick: you
+
+-- creates two tables
+another hello, one,
+  two, three, four, yeah: man
+  okay: yeah
+
+
+-- cooool

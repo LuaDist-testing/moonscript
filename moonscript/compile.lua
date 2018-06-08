@@ -1,27 +1,33 @@
 module("moonscript.compile", package.seeall)
 local util = require("moonscript.util")
-local data = require("moonscript.data")
 local dump = require("moonscript.dump")
 require("moonscript.compile.format")
-require("moonscript.compile.line")
+require("moonscript.compile.statement")
 require("moonscript.compile.value")
-local ntype, Set = data.ntype, data.Set
+local transform = require("moonscript.transform")
+local NameProxy, LocalName = transform.NameProxy, transform.LocalName
+local Set
+do
+  local _table_0 = require("moonscript.data")
+  Set = _table_0.Set
+end
+local ntype
+do
+  local _table_0 = require("moonscript.types")
+  ntype = _table_0.ntype
+end
 local concat, insert = table.concat, table.insert
 local pos_to_line, get_closest_line, trim = util.pos_to_line, util.get_closest_line, util.trim
-local bubble_names = {
-  "has_varargs"
-}
 local Line
-Line = (function(_parent_0)
+Line = (function()
+  local _parent_0 = nil
   local _base_0 = {
     _append_single = function(self, item)
       if util.moon.type(item) == Line then
-        do
-          local _item_0 = item
-          for _index_0 = 1, #_item_0 do
-            local value = _item_0[_index_0]
-            self:_append_single(value)
-          end
+        local _list_0 = item
+        for _index_0 = 1, #_list_0 do
+          value = _list_0[_index_0]
+          self:_append_single(value)
         end
       else
         insert(self, item)
@@ -37,14 +43,12 @@ Line = (function(_parent_0)
       end
     end,
     append = function(self, ...)
-      do
-        local _item_0 = {
-          ...
-        }
-        for _index_0 = 1, #_item_0 do
-          local item = _item_0[_index_0]
-          self:_append_single(item)
-        end
+      local _list_0 = {
+        ...
+      }
+      for _index_0 = 1, #_list_0 do
+        local item = _list_0[_index_0]
+        self:_append_single(item)
       end
       return nil
     end,
@@ -54,6 +58,7 @@ Line = (function(_parent_0)
         local c = self[i]
         insert(buff, (function()
           if util.moon.type(c) == Block then
+            c:bubble()
             return c:render()
           else
             return c
@@ -65,30 +70,52 @@ Line = (function(_parent_0)
   }
   _base_0.__index = _base_0
   if _parent_0 then
-    setmetatable(_base_0, getmetatable(_parent_0).__index)
+    setmetatable(_base_0, _parent_0.__base)
   end
   local _class_0 = setmetatable({
     __init = function(self, ...)
       if _parent_0 then
         return _parent_0.__init(self, ...)
       end
-    end
+    end,
+    __base = _base_0,
+    __name = "Line",
+    __parent = _parent_0
   }, {
-    __index = _base_0,
-    __call = function(mt, ...)
-      local self = setmetatable({}, _base_0)
-      mt.__init(self, ...)
-      return self
+    __index = function(cls, name)
+      local val = rawget(_base_0, name)
+      if val == nil and _parent_0 then
+        return _parent_0[name]
+      else
+        return val
+      end
+    end,
+    __call = function(cls, ...)
+      local _self_0 = setmetatable({}, _base_0)
+      cls.__init(_self_0, ...)
+      return _self_0
     end
   })
   _base_0.__class = _class_0
   return _class_0
 end)()
-local Block_
-Block_ = (function(_parent_0)
+Block = (function()
+  local _parent_0 = nil
   local _base_0 = {
     header = "do",
     footer = "end",
+    export_all = false,
+    export_proper = false,
+    __tostring = function(self)
+      return "Block<> <- " .. tostring(self.parent)
+    end,
+    bubble = function(self, other)
+      if other == nil then
+        other = self.parent
+      end
+      local has_varargs = self.has_varargs and not self:has_name("...")
+      other.has_varargs = other.has_varargs or has_varargs
+    end,
     line_table = function(self)
       return self._posmap
     end,
@@ -101,23 +128,36 @@ Block_ = (function(_parent_0)
     declare = function(self, names)
       local undeclared = (function()
         local _accum_0 = { }
-        do
-          local _item_0 = names
-          for _index_0 = 1, #_item_0 do
-            local name = _item_0[_index_0]
-            if type(name) == "string" and not self:has_name(name) then
-              table.insert(_accum_0, name)
-            end
+        local _len_0 = 0
+        local _list_0 = names
+        for _index_0 = 1, #_list_0 do
+          local name = _list_0[_index_0]
+          local is_local = false
+          local real_name
+          local _exp_0 = util.moon.type(name)
+          if LocalName == _exp_0 then
+            is_local = true
+            real_name = name:get_name(self)
+          elseif NameProxy == _exp_0 then
+            real_name = name:get_name(self)
+          elseif "string" == _exp_0 then
+            real_name = name
+          end
+          local _value_0
+          if is_local or real_name and not self:has_name(real_name) then
+            _value_0 = real_name
+          end
+          if _value_0 ~= nil then
+            _len_0 = _len_0 + 1
+            _accum_0[_len_0] = _value_0
           end
         end
         return _accum_0
       end)()
-      do
-        local _item_0 = undeclared
-        for _index_0 = 1, #_item_0 do
-          local name = _item_0[_index_0]
-          self:put_name(name)
-        end
+      local _list_0 = undeclared
+      for _index_0 = 1, #_list_0 do
+        local name = _list_0[_index_0]
+        self:put_name(name)
       end
       return undeclared
     end,
@@ -125,20 +165,28 @@ Block_ = (function(_parent_0)
       self._name_whitelist = Set(names)
     end,
     put_name = function(self, name)
+      if util.moon.type(name) == NameProxy then
+        name = name:get_name(self)
+      end
       self._names[name] = true
     end,
-    has_name = function(self, name)
+    has_name = function(self, name, skip_exports)
+      if not skip_exports then
+        if self.export_all then
+          return true
+        end
+        if self.export_proper and name:match("^[A-Z]") then
+          return true
+        end
+      end
       local yes = self._names[name]
       if yes == nil and self.parent then
         if not self._name_whitelist or self._name_whitelist[name] then
-          return self.parent:has_name(name)
+          return self.parent:has_name(name, true)
         end
       else
         return yes
       end
-    end,
-    shadow_name = function(self, name)
-      self._names[name] = false
     end,
     free_name = function(self, prefix, dont_put)
       prefix = prefix or "moon"
@@ -151,7 +199,7 @@ Block_ = (function(_parent_0)
           i
         }, "_")
         i = i + 1
-        searching = self:has_name(name)
+        searching = self:has_name(name, true)
       end
       if not dont_put then
         self:put_name(name)
@@ -192,20 +240,18 @@ Block_ = (function(_parent_0)
       end
     end,
     add_line_tables = function(self, line)
-      do
-        local _item_0 = line
-        for _index_0 = 1, #_item_0 do
-          local chunk = _item_0[_index_0]
-          if util.moon.type(chunk) == Block then
-            local current = chunk
-            while current do
-              if util.moon.type(current.header) == Line then
-                self:add_line_tables(current.header)
-              end
-              self:append_line_table(current:line_table(), 0)
-              self.current_line = self.current_line + current.current_line
-              current = current.next
+      local _list_0 = line
+      for _index_0 = 1, #_list_0 do
+        local chunk = _list_0[_index_0]
+        if util.moon.type(chunk) == Block then
+          local current = chunk
+          while current do
+            if util.moon.type(current.header) == Line then
+              self:add_line_tables(current.header)
             end
+            self:append_line_table(current:line_table(), 0)
+            self.current_line = self.current_line + current.current_line
+            current = current.next
           end
         end
       end
@@ -215,15 +261,6 @@ Block_ = (function(_parent_0)
       if t == "string" then
         self:add_line_text(line)
       elseif t == Block then
-        do
-          local _item_0 = bubble_names
-          for _index_0 = 1, #_item_0 do
-            local name = _item_0[_index_0]
-            if line[name] then
-              self[name] = line.name
-            end
-          end
-        end
         self:add(self:line(line))
       elseif t == Line then
         self:add_line_tables(line)
@@ -297,6 +334,7 @@ Block_ = (function(_parent_0)
       return self:value(node)
     end,
     value = function(self, node, ...)
+      node = self.root.transform.value(node)
       local action
       if type(node) ~= "table" then
         action = "raw_value"
@@ -316,12 +354,12 @@ Block_ = (function(_parent_0)
         local _with_0 = Line()
         _with_0:append_list((function()
           local _accum_0 = { }
-          do
-            local _item_0 = values
-            for _index_0 = 1, #_item_0 do
-              local v = _item_0[_index_0]
-              table.insert(_accum_0, self:value(v))
-            end
+          local _len_0 = 0
+          local _list_0 = values
+          for _index_0 = 1, #_list_0 do
+            local v = _list_0[_index_0]
+            _len_0 = _len_0 + 1
+            _accum_0[_len_0] = self:value(v)
           end
           return _accum_0
         end)(), delim)
@@ -329,10 +367,14 @@ Block_ = (function(_parent_0)
       end
     end,
     stm = function(self, node, ...)
+      if not node then
+        return 
+      end
+      node = self.root.transform.statement(node)
       local fn = line_compile[ntype(node)]
       if not fn then
         if has_value(node) then
-          return self:stm({
+          self:stm({
             "assign",
             {
               "_"
@@ -342,60 +384,32 @@ Block_ = (function(_parent_0)
             }
           })
         else
-          return self:add(self:value(node))
+          self:add(self:value(node))
         end
       else
         self:mark_pos(node)
         local out = fn(self, node, ...)
         if out then
-          return self:add(out)
-        end
-      end
-    end,
-    ret_stms = function(self, stms, ret)
-      if not ret then
-        ret = default_return
-      end
-      local i = 1
-      while i < #stms do
-        self:stm(stms[i])
-        i = i + 1
-      end
-      local last_exp = stms[i]
-      if last_exp then
-        if cascading[ntype(last_exp)] then
-          self:stm(last_exp, ret)
-        elseif self:is_value(last_exp) then
-          local line = ret(stms[i])
-          if self:is_stm(line) then
-            self:stm(line)
-          else
-            error("got a value from implicit return")
-          end
-        else
-          self:stm(last_exp)
+          self:add(out)
         end
       end
       return nil
     end,
     stms = function(self, stms, ret)
       if ret then
-        self:ret_stms(stms, ret)
-      else
-        do
-          local _item_0 = stms
-          for _index_0 = 1, #_item_0 do
-            local stm = _item_0[_index_0]
-            self:stm(stm)
-          end
-        end
+        error("deprecated stms call, use transformer")
+      end
+      local _list_0 = stms
+      for _index_0 = 1, #_list_0 do
+        local stm = _list_0[_index_0]
+        self:stm(stm)
       end
       return nil
     end
   }
   _base_0.__index = _base_0
   if _parent_0 then
-    setmetatable(_base_0, getmetatable(_parent_0).__index)
+    setmetatable(_base_0, _parent_0.__base)
   end
   local _class_0 = setmetatable({
     __init = function(self, parent, header, footer)
@@ -406,6 +420,7 @@ Block_ = (function(_parent_0)
       self._names = { }
       self._state = { }
       if self.parent then
+        self.root = self.parent.root
         self.indent = self.parent.indent + 1
         return setmetatable(self._state, {
           __index = self.parent._state
@@ -413,21 +428,35 @@ Block_ = (function(_parent_0)
       else
         self.indent = 0
       end
-    end
+    end,
+    __base = _base_0,
+    __name = "Block",
+    __parent = _parent_0
   }, {
-    __index = _base_0,
-    __call = function(mt, ...)
-      local self = setmetatable({}, _base_0)
-      mt.__init(self, ...)
-      return self
+    __index = function(cls, name)
+      local val = rawget(_base_0, name)
+      if val == nil and _parent_0 then
+        return _parent_0[name]
+      else
+        return val
+      end
+    end,
+    __call = function(cls, ...)
+      local _self_0 = setmetatable({}, _base_0)
+      cls.__init(_self_0, ...)
+      return _self_0
     end
   })
   _base_0.__class = _class_0
   return _class_0
 end)()
 local RootBlock
-RootBlock = (function(_parent_0)
+RootBlock = (function()
+  local _parent_0 = Block
   local _base_0 = {
+    __tostring = function(self)
+      return "RootBlock<>"
+    end,
     render = function(self)
       self:_insert_breaks()
       return concat(self._lines, "\n")
@@ -435,26 +464,38 @@ RootBlock = (function(_parent_0)
   }
   _base_0.__index = _base_0
   if _parent_0 then
-    setmetatable(_base_0, getmetatable(_parent_0).__index)
+    setmetatable(_base_0, _parent_0.__base)
   end
   local _class_0 = setmetatable({
     __init = function(self, ...)
-      if _parent_0 then
-        return _parent_0.__init(self, ...)
-      end
-    end
+      self.root = self
+      self.transform = {
+        value = transform.Value:instance(self),
+        statement = transform.Statement:instance(self)
+      }
+      return _parent_0.__init(self, ...)
+    end,
+    __base = _base_0,
+    __name = "RootBlock",
+    __parent = _parent_0
   }, {
-    __index = _base_0,
-    __call = function(mt, ...)
-      local self = setmetatable({}, _base_0)
-      mt.__init(self, ...)
-      return self
+    __index = function(cls, name)
+      local val = rawget(_base_0, name)
+      if val == nil and _parent_0 then
+        return _parent_0[name]
+      else
+        return val
+      end
+    end,
+    __call = function(cls, ...)
+      local _self_0 = setmetatable({}, _base_0)
+      cls.__init(_self_0, ...)
+      return _self_0
     end
   })
   _base_0.__class = _class_0
   return _class_0
-end)(Block_)
-Block = Block_
+end)()
 format_error = function(msg, pos, file_str)
   local line = pos_to_line(file_str, pos)
   local line_str
@@ -465,15 +506,22 @@ format_error = function(msg, pos, file_str)
     (" [%d] >>    %s"):format(line, trim(line_str))
   }, "\n")
 end
+value = function(value)
+  local out = nil
+  do
+    local _with_0 = RootBlock()
+    _with_0:add(_with_0:value(value))
+    out = _with_0:render()
+  end
+  return out
+end
 tree = function(tree)
   local scope = RootBlock()
   local runner = coroutine.create(function()
-    do
-      local _item_0 = tree
-      for _index_0 = 1, #_item_0 do
-        local line = _item_0[_index_0]
-        scope:stm(line)
-      end
+    local _list_0 = tree
+    for _index_0 = 1, #_list_0 do
+      local line = _list_0[_index_0]
+      scope:stm(line)
     end
     return scope:render()
   end)

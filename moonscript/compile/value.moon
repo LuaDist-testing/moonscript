@@ -3,33 +3,23 @@ module "moonscript.compile", package.seeall
 
 util = require "moonscript.util"
 data = require "moonscript.data"
-dump = require "moonscript.dump"
 
 require "moonscript.compile.format"
 
-import ntype from data
+import ntype from require "moonscript.types"
 import concat, insert from table
 
 export value_compile
 
-create_accumulate_wrapper = (block_pos) ->
-  (node) =>
-    with @block "(function()", "end)()"
-      accum_name = \init_free_var "accum", {"table"}
-      value_name = \free_name "value", true
-
-      inner = node[block_pos]
-      inner[#inner] = {"assign", {value_name}, {inner[#inner]}}
-      insert inner, {
-        "if", {"exp", value_name, "~=", "nil"}, {
-          {"chain", "table.insert", {"call", {accum_name, value_name}}}
-        }
-      }
-
-      \stm node
-      \stm {"return", accum_name}
+table_append = (name, len, value) ->
+  {
+    {"update", len, "+=", 1}
+    {"assign", {
+      {"chain", name, {"index", len}} }, { value }}
+  }
 
 value_compile =
+  -- list of values separated by binary operators
   exp: (node) =>
     _comp = (i, value) ->
       if i % 2 == 1 and value == "!="
@@ -39,14 +29,16 @@ value_compile =
     with @line!
       \append_list [_comp i,v for i,v in ipairs node when i > 1], " "
 
+  -- TODO refactor
   update: (node) =>
     _, name = unpack node
     @stm node
     @name name
 
+  -- list of expressions separated by paretheses
   explist: (node) =>
     with @line!
-      \append_list [@value v for v in *node[2:]], ", "
+      \append_list [@value v for v in *node[2,]], ", "
 
   parens: (node) =>
     @line "(", @value(node[2]), ")"
@@ -54,35 +46,6 @@ value_compile =
   string: (node) =>
     _, delim, inner, delim_end = unpack node
     delim..inner..(delim_end or delim)
-
-  with: (node) =>
-    with @block "(function()", "end)()"
-      \stm node, default_return
-
-  if: (node) =>
-    with @block "(function()", "end)()"
-      \stm node, default_return
-
-  comprehension: (node) =>
-    _, exp, iter = unpack node
-
-    with @block!
-      tmp_name = \init_free_var "accum", {"table"}
-
-      action = (value) ->
-        {"chain", "table.insert", {"call", {tmp_name, value}}}
-
-      \stm node, action
-      \stm {"return", tmp_name}
-
-      .header, .footer = if .has_varargs
-        "(function(...)", "end)(...)"
-      else
-        "(function()", "end)()"
-
-  for: create_accumulate_wrapper 4
-  foreach: create_accumulate_wrapper 4
-  while: create_accumulate_wrapper 3
 
   chain: (node) =>
     callee = node[2]
@@ -98,11 +61,12 @@ value_compile =
     chain_item = (node) ->
       t, arg = unpack node
       if t == "call"
+        -- print arg, util.dump arg
         "(", @values(arg), ")"
       elseif t == "index"
         "[", @value(arg), "]"
       elseif t == "dot"
-        ".", arg
+        ".", tostring arg
       elseif t == "colon"
         ":", arg, chain_item(node[3])
       elseif t == "colon_stub"
@@ -110,14 +74,14 @@ value_compile =
       else
         error "Unknown chain action: "..t
 
-    actions = with @line!
-      \append chain_item action for action in *node[3:]
-
     if ntype(callee) == "self" and node[3] and ntype(node[3]) == "call"
       callee[1] = "self_colon"
 
-    callee_value = @name callee
+    callee_value = @value callee
     callee_value = @line "(", callee_value, ")" if ntype(callee) == "exp"
+
+    actions = with @line!
+      \append chain_item action for action in *node[3,]
 
     @line callee_value, actions
 
@@ -125,33 +89,47 @@ value_compile =
     _, args, whitelist, arrow, block = unpack node
 
     default_args = {}
-    format_names = (arg) ->
-      if type(arg) == "string"
-        arg
+    self_args = {}
+    arg_names = for arg in *args
+      name, default_value = unpack arg
+      name = if type(name) == "string"
+        name
       else
-        insert default_args, arg
-        arg[1]
-
-    args = [format_names arg for arg in *args]
+        if name[1] == "self"
+          insert self_args, name
+        name[2]
+      insert default_args, arg if default_value
+      name
 
     if arrow == "fat"
-      insert args, 1, "self"
+      insert arg_names, 1, "self"
 
-    with @block "function("..concat(args, ", ")..")"
+    with @block!
       if #whitelist > 0
         \whitelist_names whitelist
 
-      \put_name name for name in *args
+      \put_name name for name in *arg_names
 
       for default in *default_args
         name, value = unpack default
+        name = name[2] if type(name) == "table"
         \stm {
           'if', {'exp', name, '==', 'nil'}, {
             {'assign', {name}, {value}}
           }
         }
 
-      \ret_stms block
+      self_arg_values = [arg[2] for arg in *self_args]
+      \stm {"assign", self_args, self_arg_values} if #self_args > 0
+
+      \stms block
+
+      -- inject more args if the block manipulated arguments
+      if #args > #arg_names -- will only work for simple adjustments
+        arg_names = for arg in *args
+          arg[1]
+
+      .header = "function("..concat(arg_names, ", ")..")"
 
   table: (node) =>
     _, items = unpack node
@@ -183,6 +161,9 @@ value_compile =
   minus: (node) =>
     @line "-", @value node[2]
 
+  temp_name: (node) =>
+    node\get_name self
+
   number: (node) =>
     node[2]
 
@@ -198,7 +179,13 @@ value_compile =
   self_colon: (node) =>
     "self:"..@value node[2]
 
+  -- catch all pure string values
   raw_value: (value) =>
+    sup = @get"super"
+    if value == "super" and sup
+      return @value sup self
+
     if value == "..."
       @has_varargs = true
+
     tostring value

@@ -1,21 +1,23 @@
 module "moonscript.compile", package.seeall
 
 util = require "moonscript.util"
-data = require "moonscript.data"
 dump = require "moonscript.dump"
 
 require "moonscript.compile.format"
-require "moonscript.compile.line"
+require "moonscript.compile.statement"
 require "moonscript.compile.value"
 
-import ntype, Set from data
+transform = require "moonscript.transform"
+
+import NameProxy, LocalName from transform
+import Set from require "moonscript.data"
+import ntype from require "moonscript.types"
+
 import concat, insert from table
 import pos_to_line, get_closest_line, trim from util
 
-export tree, format_error
+export tree, value, format_error
 export Block
-
-bubble_names = { "has_varargs" }
 
 -- buffer for building up a line
 class Line
@@ -40,14 +42,20 @@ class Line
     for i = 1,#self
       c = self[i]
       insert buff, if util.moon.type(c) == Block
+        c\bubble!
         c\render!
       else
         c
     concat buff
 
-class Block_
+class Block
   header: "do"
   footer: "end"
+
+  export_all: false
+  export_proper: false
+
+  __tostring: => "Block<> <- " .. tostring @parent
 
   new: (@parent, @header, @footer) =>
     @current_line = 1
@@ -58,10 +66,16 @@ class Block_
     @_state = {}
 
     if @parent
+      @root = @parent.root
       @indent = @parent.indent + 1
       setmetatable @_state, { __index: @parent._state }
     else
       @indent = 0
+
+  -- bubble properties into parent
+  bubble: (other=@parent) =>
+    has_varargs = @has_varargs and not @has_name "..."
+    other.has_varargs = other.has_varargs or has_varargs
 
   line_table: =>
     @_posmap
@@ -73,7 +87,17 @@ class Block_
     @_state[name]
 
   declare: (names) =>
-    undeclared = [name for name in *names when type(name) == "string" and not @has_name name]
+    undeclared = for name in *names
+      is_local = false
+      real_name = switch util.moon.type name
+        when LocalName
+          is_local = true
+          name\get_name self
+        when NameProxy then name\get_name self
+        when "string" then name
+
+      real_name if is_local or real_name and not @has_name real_name
+
     @put_name name for name in *undeclared
     undeclared
 
@@ -81,18 +105,20 @@ class Block_
     @_name_whitelist = Set names
 
   put_name: (name) =>
+    name = name\get_name self if util.moon.type(name) == NameProxy
     @_names[name] = true
 
-  has_name: (name) =>
+  has_name: (name, skip_exports) =>
+    if not skip_exports
+      return true if @export_all
+      return true if @export_proper and name\match"^[A-Z]"
+
     yes = @_names[name]
     if yes == nil and @parent
       if not @_name_whitelist or @_name_whitelist[name]
-        @parent\has_name name
+        @parent\has_name name, true
     else
       yes
-
-  shadow_name: (name) =>
-    @_names[name] = false
 
   free_name: (prefix, dont_put) =>
     prefix = prefix or "moon"
@@ -101,7 +127,7 @@ class Block_
     while searching
       name = concat {"", prefix, i}, "_"
       i = i + 1
-      searching = @has_name name
+      searching = @has_name name, true
 
     @put_name name if not dont_put
     name
@@ -148,9 +174,6 @@ class Block_
     if t == "string"
       @add_line_text line
     elseif t == Block
-      for name in *bubble_names
-        self[name] = line.name if line[name]
-
       @add @line line
     elseif t == Line
       @add_line_tables line
@@ -209,6 +232,7 @@ class Block_
   -- line wise compile functions
   name: (node) => @value node
   value: (node, ...) =>
+    node = @root.transform.value node
     action = if type(node) != "table"
       "raw_value"
     else
@@ -225,6 +249,8 @@ class Block_
       \append_list [@value v for v in *values], delim
 
   stm: (node, ...) =>
+    return if not node -- slip blank statements
+    node = @root.transform.statement node
     fn = line_compile[ntype(node)]
     if not fn
       -- coerce value into statement
@@ -236,47 +262,27 @@ class Block_
       @mark_pos node
       out = fn self, node, ...
       @add out if out
-
-  ret_stms: (stms, ret) =>
-    if not ret
-      ret = default_return
-
-    -- wow I really need a for loop
-    i = 1
-    while i < #stms
-      @stm stms[i]
-      i = i + 1
-
-    last_exp = stms[i]
-
-    if last_exp
-      if cascading[ntype(last_exp)]
-        @stm last_exp, ret
-      elseif @is_value last_exp
-        line = ret stms[i]
-        if @is_stm line
-          @stm line
-        else
-          error "got a value from implicit return"
-      else
-        -- nothing we can do with a statement except show it
-        @stm last_exp
-
     nil
 
   stms: (stms, ret) =>
-    if ret
-      @ret_stms stms, ret
-    else
-      @stm stm for stm in *stms
+    error "deprecated stms call, use transformer" if ret
+    @stm stm for stm in *stms
     nil
 
-class RootBlock extends Block_
+class RootBlock extends Block
+  new: (...) =>
+    @root = self
+    @transform = {
+      value: transform.Value\instance self
+      statement: transform.Statement\instance self
+    }
+    super ...
+
+  __tostring: => "RootBlock<>"
+
   render: =>
     @_insert_breaks!
     concat @_lines, "\n"
-
-Block = Block_
 
 format_error = (msg, pos, file_str) ->
   line = pos_to_line file_str, pos
@@ -286,6 +292,13 @@ format_error = (msg, pos, file_str) ->
     "Compile error: "..msg
     (" [%d] >>    %s")\format line, trim line_str
   }, "\n"
+
+value = (value) ->
+  out = nil
+  with RootBlock!
+    \add \value value
+    out = \render!
+  out
 
 tree = (tree) ->
   scope = RootBlock!
