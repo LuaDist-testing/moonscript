@@ -8,33 +8,7 @@ do
   ntype = _table_0.ntype
 end
 local concat, insert = table.concat, table.insert
-local table_append
-table_append = function(name, len, value)
-  return {
-    {
-      "update",
-      len,
-      "+=",
-      1
-    },
-    {
-      "assign",
-      {
-        {
-          "chain",
-          name,
-          {
-            "index",
-            len
-          }
-        }
-      },
-      {
-        value
-      }
-    }
-  }
-end
+local table_delim = ","
 value_compile = {
   exp = function(self, node)
     local _comp
@@ -60,11 +34,6 @@ value_compile = {
       return _with_0
     end
   end,
-  update = function(self, node)
-    local _, name = unpack(node)
-    self:stm(node)
-    return self:name(name)
-  end,
   explist = function(self, node)
     do
       local _with_0 = self:line()
@@ -86,8 +55,9 @@ value_compile = {
     return self:line("(", self:value(node[2]), ")")
   end,
   string = function(self, node)
-    local _, delim, inner, delim_end = unpack(node)
-    return delim .. inner .. (delim_end or delim)
+    local _, delim, inner = unpack(node)
+    local end_delim = delim:gsub("%[", "]")
+    return delim .. inner .. end_delim
   end,
   chain = function(self, node)
     local callee = node[2]
@@ -118,8 +88,9 @@ value_compile = {
         return error("Unknown chain action: " .. t)
       end
     end
-    if ntype(callee) == "self" and node[3] and ntype(node[3]) == "call" then
-      callee[1] = "self_colon"
+    local t = ntype(callee)
+    if (t == "self" or t == "self_class") and node[3] and ntype(node[3]) == "call" then
+      callee[1] = t .. "_colon"
     end
     local callee_value = self:value(callee)
     if ntype(callee) == "exp" then
@@ -151,7 +122,7 @@ value_compile = {
         if type(name) == "string" then
           name = name
         else
-          if name[1] == "self" then
+          if name[1] == "self" or name[1] == "self_class" then
             insert(self_args, name)
           end
           name = name[2]
@@ -251,23 +222,22 @@ value_compile = {
     local _, items = unpack(node)
     do
       local _with_0 = self:block("{", "}")
-      _with_0.delim = ","
       local format_line
       format_line = function(tuple)
         if #tuple == 2 then
           local key, value = unpack(tuple)
-          if type(key) == "string" and data.lua_keywords[key] then
+          if ntype(key) == "key_literal" and data.lua_keywords[key[2]] then
             key = {
               "string",
               '"',
-              key
+              key[2]
             }
           end
           local assign
-          if type(key) ~= "string" then
-            assign = self:line("[", _with_0:value(key), "]")
+          if ntype(key) == "key_literal" then
+            assign = key[2]
           else
-            assign = key
+            assign = self:line("[", _with_0:value(key), "]")
           end
           _with_0:set("current_block", key)
           local out = self:line(assign, " = ", _with_0:value(value))
@@ -278,10 +248,13 @@ value_compile = {
         end
       end
       if items then
-        local _list_0 = items
-        for _index_0 = 1, #_list_0 do
-          local line = _list_0[_index_0]
-          _with_0:add(format_line(line))
+        local count = #items
+        for i, tuple in ipairs(items) do
+          local line = format_line(tuple)
+          if not (count == i) then
+            line:append(table_delim)
+          end
+          _with_0:add(line)
         end
       end
       return _with_0
@@ -305,8 +278,14 @@ value_compile = {
   self = function(self, node)
     return "self." .. self:value(node[2])
   end,
+  self_class = function(self, node)
+    return "self.__class." .. self:value(node[2])
+  end,
   self_colon = function(self, node)
     return "self:" .. self:value(node[2])
+  end,
+  self_class_colon = function(self, node)
+    return "self.__class:" .. self:value(node[2])
   end,
   raw_value = function(self, value)
     local sup = self:get("super")
@@ -314,7 +293,7 @@ value_compile = {
       return self:value(sup(self))
     end
     if value == "..." then
-      self.has_varargs = true
+      self:send("varargs")
     end
     return tostring(value)
   end

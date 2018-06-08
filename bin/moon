@@ -4,6 +4,8 @@ require "alt_getopt"
 require "moonscript.errors"
 require "moonscript"
 
+local util = require "moonscript.util"
+
 -- moonloader and repl
 local opts, ind = alt_getopt.get_opts(arg, "cvhd", { version = "v", help = "h" })
 
@@ -13,6 +15,11 @@ local help = [=[Usage: %s [options] [script [args]]
     -d          Disable stack trace rewriting
     -v          Print version
 ]=]
+
+local function print_err(...)
+	local msg = table.concat({...}, "\t")
+	io.stderr:write(msg .. "\n")
+end
 
 local function print_help(err)
 	if err then print("Error: "..err) end
@@ -28,7 +35,6 @@ if opts.v then
 	os.exit()
 end
 
-
 local script_fname = arg[ind]
 if not script_fname then
 	print_help("repl not yet supported")
@@ -41,25 +47,49 @@ local new_arg = {
 	select(ind + 1, unpack(arg))
 }
 
-local chunk
+local moonscript_chunk, lua_parse_error
 local passed, err = pcall(function()
-	chunk = moonscript.loadfile(script_fname)
+	moonscript_chunk, lua_parse_error = moonscript.loadfile(script_fname, { implicitly_return_root = false })
 end)
 
 if not passed then
-	print(err)
-	os.exit()
+	print_err(err)
+	os.exit(1)
 end
 
-getfenv(chunk).arg = new_arg
-
-local runner = coroutine.create(chunk)
-local success, err = coroutine.resume(runner, unpack(new_arg))
-if not success then
-	local trace = debug.traceback(runner)
-	if not opts.d then
-		print(moonscript.errors.rewrite_traceback(trace, err))
+if not moonscript_chunk then
+	if lua_parse_error then
+		print_err(lua_parse_error)
 	else
-		print(trace)
+		print_err("Can't find file: " .. script_fname)
 	end
+	os.exit(1)
+end
+
+getfenv(moonscript_chunk).arg = new_arg
+
+if not opts.d then
+	local err, trace
+
+	xpcall(function() moonscript_chunk(unpack(new_arg)) end, function(_err)
+		err = _err
+		trace = debug.traceback("", 2)
+	end)
+
+	if err then
+		local truncated = moonscript.errors.truncate_traceback(util.trim(trace))
+		local rewritten = moonscript.errors.rewrite_traceback(truncated, err)
+
+		if rewritten then
+			print_err(rewritten)
+		else
+			-- faield to rewrite, show original
+			print_err(table.concat({
+				err,
+				util.trim(trace)
+			}, "\n"))
+		end
+	end
+else
+	moonscript_chunk(unpack(new_arg))
 end

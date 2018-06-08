@@ -80,4 +80,85 @@ class CoolSuper
     nil
 
 
+-- selfing
+x = @hello
+x = @@hello
+
+@hello "world"
+@@hello "world"
+
+@@one @@two(4,5) @three, @four
+
+xx = (@hello, @@world, cool) ->
+
+
+-- class properties
+class ClassMan
+  @yeah: 343
+  blue: =>
+  @hello: 3434, @world: 23423
+  green: =>
+  @red: =>
+
+
+x = @
+y = @@
+
+@ something
+
+@@ something
+
+@ = @ + @ / @
+
+@ = 343
+@.hello 2,3,4
+
+hello[@].world
+
+
+class Whacko
+  @hello
+  if something
+    print "hello world"
+
+  hello = "world"
+  @another = "day"
+
+  print "yeah" if something -- this is briken
+
+
+print "hello"
+
+yyy = ->
+  class Cool
+    nil
+
+
+--
+
+class a.b.c.D
+  nil
+
+
+class a.b["hello"]
+  nil
+
+class (-> require "moon")!.Something extends Hello.World
+  nil
+
+--
+
+a = class
+b = class Something
+c = class Something extends Hello
+d = class extends World
+
+print (class WhatsUp).__name
+
+--
+
+export ^
+class Something
+  nil
+
 

@@ -4,6 +4,7 @@ util = require "moonscript.util"
 
 require "moonscript.compile.format"
 dump = require "moonscript.dump"
+transform = require "moonscript.transform"
 
 import reversed from util
 import ntype from require "moonscript.types"
@@ -12,16 +13,25 @@ import concat, insert from table
 export line_compile
 
 line_compile =
-  raw: (node) =>
-    _, text = unpack node
-    @add text
+  raw: (node) => @add node[2]
+
+  lines: (node) =>
+    for line in *node[2]
+      @add line
 
   declare: (node) =>
-    _, names = unpack node
+    names = node[2]
     undeclared = @declare names
     if #undeclared > 0
       with @line "local "
-        \append_list [@name name for name in *names], ", "
+        \append_list [@name name for name in *undeclared], ", "
+
+  -- this overrides the existing names with new locals, used for local keyword
+  declare_with_shadows: (node) =>
+    names = node[2]
+    @declare names
+    with @line "local "
+      \append_list [@name name for name in *names], ", "
 
   assign: (node) =>
     _, names, values = unpack node
@@ -75,35 +85,37 @@ line_compile =
     add_clause cond for cond in *node[4,]
     root
 
+  repeat: (node) =>
+    cond, block = unpack node, 2
+    with @block "repeat", @line "until ", @value cond
+      \stms block
+
   while: (node) =>
     _, cond, block = unpack node
-
-    out = if is_non_atomic cond
-      with @block "while true do"
-        \stm {"if", {"not", cond}, {{"break"}}}
-    else
-      @block @line "while ", @value(cond), " do"
-
-    out\stms block
-    out
+    with @block @line "while ", @value(cond), " do"
+      \stms block
 
   for: (node) =>
     _, name, bounds, block = unpack node
     loop = @line "for ", @name(name), " = ", @value({"explist", unpack bounds}), " do"
     with @block loop
+      \declare {name}
       \stms block
 
   -- for x in y ...
-  -- {"foreach", {names...}, exp, body}
+  -- {"foreach", {names...}, {exp...}, body}
   foreach: (node) =>
-    _, names, exp, block = unpack node
+    _, names, exps, block = unpack node
 
     loop = with @line!
       \append "for "
       \append_list [@name name for name in *names], ", "
-      \append " in ", @value(exp), " do"
+      \append " in "
+      \append_list [@value exp for exp in *exps], ","
+      \append " do"
 
     with @block loop
+      \declare names
       \stms block
 
   export: (node) =>

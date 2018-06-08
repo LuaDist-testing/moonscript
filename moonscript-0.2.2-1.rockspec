@@ -1,17 +1,17 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "moonscript"
-version = "0.2.0-1"
+version = "0.2.2-1"
 
 -- LuaDist source
 source = {
-  tag = "0.2.0-1",
+  tag = "0.2.2-1",
   url = "git://github.com/LuaDist-testing/moonscript.git"
 }
 -- Original source
 -- source = {
 -- 	url = "git://github.com/leafo/moonscript.git",
--- 	branch = "v0.2.0"
+-- 	branch = "v0.2.2"
 -- }
 
 description = {

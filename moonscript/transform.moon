@@ -6,10 +6,14 @@ util = require "moonscript.util"
 data = require "moonscript.data"
 
 import reversed from util
-import ntype, build, smart_node, is_slice from types
+import ntype, build, smart_node, is_slice, value_is_singular from types
 import insert from table
 
+mtype = util.moon.type
+
 export Statement, Value, NameProxy, LocalName, Run
+
+local implicitly_return
 
 -- always declares as local
 class LocalName
@@ -81,14 +85,78 @@ is_singular = (body) ->
   else
     true
 
+find_assigns = (body, out={}) ->
+  for thing in *body
+    switch thing[1]
+      when "group"
+        find_assigns thing[2], out
+      when "assign"
+        table.insert out, thing[2] -- extract names
+  out
+
+hoist_declarations = (body) ->
+  assigns = {}
+
+  -- hoist the plain old assigns
+  for names in *find_assigns body
+    for name in *names
+      table.insert assigns, name if type(name) == "string"
+
+  -- insert after runs
+  idx = 1
+  while mtype(body[idx]) == Run do idx += 1
+
+  table.insert body, idx, {"declare", assigns}
+
+expand_elseif_assign = (ifstm) ->
+  for i = 4, #ifstm
+    case = ifstm[i]
+    if ntype(case) == "elseif" and ntype(case[2]) == "assign"
+      split = { unpack ifstm, 1, i - 1 }
+      insert split, {
+        "else", {
+          {"if", case[2], case[3], unpack ifstm, i + 1}
+        }
+      }
+      return split
+
+  ifstm
+
 constructor_name = "new"
 
+with_continue_listener = (body) ->
+  continue_name = nil
+  {
+    Run =>
+      @listen "continue", ->
+        unless continue_name
+          continue_name = NameProxy"continue"
+          @put_name continue_name
+        continue_name
+
+    build.group body
+
+    Run =>
+      return unless continue_name
+      @put_name continue_name, nil
+      @splice (lines) -> {
+        {"assign", {continue_name}, {"false"}}
+        {"repeat", "true", {
+          lines
+          {"assign", {continue_name}, {"true"}}
+        }}
+        {"if", {"not", continue_name}, {
+          {"break"}
+        }}
+      }
+  }
+
+
 class Transformer
-  new: (@transformers, @scope) =>
-    @seen_nodes = {}
+  new: (@transformers) =>
+    @seen_nodes = setmetatable {}, __mode: "k"
 
   transform: (scope, node, ...) =>
-    -- print scope, node, ...
     return node if @seen_nodes[node]
     @seen_nodes[node] = true
     while true
@@ -99,12 +167,12 @@ class Transformer
         node
       return node if res == node
       node = res
+    node
 
-  __call: (node, ...) =>
-    @transform @scope, node, ...
+  bind: (scope) =>
+    (...) -> @transform scope, ...
 
-  instance: (scope) =>
-    Transformer @transformers, scope
+  __call: (...) => @transform ...
 
   can_transform: (node) =>
     @transformers[ntype node] != nil
@@ -115,7 +183,7 @@ construct_comprehension = (inner, clauses) ->
     t = clause[1]
     current_stms = if t == "for"
       _, names, iter = unpack clause
-      {"foreach", names, iter, current_stms}
+      {"foreach", names, {iter}, current_stms}
     elseif t == "when"
       _, cond = unpack clause
       {"if", cond, current_stms}
@@ -126,23 +194,41 @@ construct_comprehension = (inner, clauses) ->
   current_stms[1]
 
 Statement = Transformer {
-  assign: (node) =>
-    _, names, values = unpack node
-    -- bubble cascading assigns
-    if #values == 1 and types.cascading[ntype values[1]]
-      values[1] = @transform.statement values[1], (stm) ->
-        t = ntype stm
-        if types.is_value stm
-          {"assign", names, {stm}}
-        else
-          stm
+  root_stms: (body) =>
+    apply_to_last body, implicitly_return @
 
-      build.group {
-        {"declare", names}
-        values[1]
-      }
-    else
-      node
+  assign: (node) =>
+    names, values = unpack node, 2
+    -- bubble cascading assigns
+    transformed = if #values == 1
+      value = values[1]
+      t = ntype value
+
+      if t == "decorated"
+        value = @transform.statement value
+        t = ntype value
+
+      if types.cascading[t]
+        ret = (stm) ->
+          if types.is_value stm
+            {"assign", names, {stm}}
+          else
+            stm
+
+        build.group {
+          {"declare", names}
+          @transform.statement value, ret, node
+        }
+
+    transformed or node
+
+  continue: (node) =>
+    continue_name = @send "continue"
+    error "continue must be inside of a loop" unless continue_name
+    build.group {
+      build.assign_one continue_name, "true"
+      {"break"}
+    }
 
   export: (node) =>
     -- assign values if they are included
@@ -168,6 +254,7 @@ Statement = Transformer {
     _, name, op, exp = unpack node
     op_final = op\match "^(.+)=$"
     error "Unknown op: "..op if not op_final
+    exp = {"parens", exp} unless value_is_singular exp
     build.assign_one name, {"exp", name, op_final, exp}
 
   import: (node) =>
@@ -206,8 +293,49 @@ Statement = Transformer {
     action = action or (exp) -> {exp}
     construct_comprehension action(exp), clauses
 
-  -- handle cascading return decorator
+  do: (node, ret) =>
+    node[2] = apply_to_last node[2], ret if ret
+    node
+
+  decorated: (node) =>
+    stm, dec = unpack node, 2
+
+    wrapped = switch dec[1]
+      when "if"
+        cond, fail = unpack dec, 2
+        fail = { "else", { fail } } if fail
+        { "if", cond, { stm }, fail }
+      when "unless"
+        { "unless", dec[2], { stm } }
+      when "comprehension"
+        { "comprehension", stm, dec[2] }
+      else
+        error "Unknown decorator " .. dec[1]
+
+    if ntype(stm) == "assign"
+      wrapped = build.group {
+        build.declare names: [name for name in *stm[2] when type(name) == "string"]
+        wrapped
+      }
+
+    wrapped
+
+  unless: (node) =>
+    { "if", {"not", {"parens", node[2]}}, unpack node, 3 }
+
   if: (node, ret) =>
+    -- expand assign in cond
+    if ntype(node[2]) == "assign"
+      _, assign, body = unpack node
+      name = assign[2][1]
+      return build["do"] {
+        assign
+        {"if", name, unpack node, 3}
+      }
+
+    node = expand_elseif_assign node
+
+    -- apply cascading return decorator
     if ret
       smart_node node
       -- mutate all the bodies
@@ -216,23 +344,37 @@ Statement = Transformer {
         case = node[i]
         body_idx = #node[i]
         case[body_idx] = apply_to_last case[body_idx], ret
+
     node
 
   with: (node, ret) =>
     _, exp, block = unpack node
+
     scope_name = NameProxy "with"
-    build["do"] {
-      build.assign_one scope_name, exp
+
+    named_assign = if ntype(exp) == "assign"
+      names, values = unpack exp, 2
+      assign_name = names[1]
+      exp = values[1]
+      values[1] = scope_name
+      {"assign", names, values}
+
+    build.do {
       Run => @set "scope_var", scope_name
+      build.assign_one scope_name, exp
+      build.group { named_assign }
       build.group block
+
       if ret
         ret scope_name
     }
 
   foreach: (node) =>
     smart_node node
-    if ntype(node.iter) == "unpack"
-      list = node.iter[2]
+    source = unpack node.iter
+
+    if ntype(source) == "unpack"
+      list = source[2]
 
       index_name = NameProxy "index"
       list_name = NameProxy "list"
@@ -256,7 +398,7 @@ Statement = Transformer {
       else
         {1, {"length", list_name}}
 
-      build.group {
+      return build.group {
         build.assign_one list_name, list
         slice_var
         build["for"] {
@@ -268,6 +410,16 @@ Statement = Transformer {
           }
         }
       }
+
+    node.body = with_continue_listener node.body
+
+  while: (node) =>
+    smart_node node
+    node.body = with_continue_listener node.body
+
+  for: (node) =>
+    smart_node node
+    node.body = with_continue_listener node.body
 
   switch: (node, ret) =>
     _, exp, conds = unpack node
@@ -306,7 +458,7 @@ Statement = Transformer {
       if_stm
     }
 
-  class: (node) =>
+  class: (node, ret, parent_assign) =>
     _, name, parent_val, body = unpack node
 
     -- split apart properties and statements
@@ -318,12 +470,16 @@ Statement = Transformer {
           insert statements, item[2]
         when "props"
           for tuple in *item[2,]
-            insert properties, tuple
+            if ntype(tuple[1]) == "self"
+              insert statements, build.assign_one unpack tuple
+            else
+              insert properties, tuple
 
     -- find constructor
     constructor = nil
     properties = for tuple in *properties
-      if tuple[1] == constructor_name
+      key = tuple[1]
+      if key[1] == "key_literal" and key[2] == constructor_name
         constructor = tuple[2]
         nil
       else
@@ -351,10 +507,26 @@ Statement = Transformer {
       smart_node constructor
       constructor.arrow = "fat"
 
+    real_name = name or parent_assign and parent_assign[2][1]
+    real_name = switch ntype real_name
+      when "chain"
+        last = real_name[#real_name]
+        switch ntype last
+          when "dot"
+            {"string", '"', last[2]}
+          when "index"
+            last[2]
+          else
+            "nil"
+      when "nil"
+        "nil"
+      else
+        {"string", '"', real_name}
+
     cls = build.table {
       {"__init", constructor}
       {"__base", base_name}
-      {"__name", {"string", '"', name}} -- "quote the string"
+      {"__name", real_name} -- "quote the string"
       {"__parent", parent_cls_name}
     }
 
@@ -400,8 +572,11 @@ Statement = Transformer {
 
     value = nil
     with build
-      value = .block_exp {
+      out_body = {
         Run =>
+          -- make sure we don't assign the class to a local inside the do
+          @put_name name if name
+
           @set "super", (block, chain) ->
             if chain
               slice = [item for item in *chain[3,]]
@@ -417,8 +592,11 @@ Statement = Transformer {
                 when "call"
                   calling_name = block\get"current_block"
                   slice[1] = {"call", {"self", unpack head[2]}}
-                  act = if ntype(calling_name) != "value" then "index" else "dot"
-                  insert new_chain, {act, calling_name}
+
+                  if ntype(calling_name) == "key_literal"
+                    insert new_chain, {"dot", calling_name[2]}
+                  else
+                    insert new_chain, {"index", calling_name}
 
                 -- colon call on super, replace class with self as first arg
                 when "colon"
@@ -436,7 +614,7 @@ Statement = Transformer {
         .assign_one base_name, {"table", properties}
         .assign_one base_name\chain"__index", base_name
 
-        build["if"] {
+        .if {
           cond: parent_cls_name
           then: {
             .chain {
@@ -452,20 +630,39 @@ Statement = Transformer {
         .assign_one cls_name, cls
         .assign_one base_name\chain"__class", cls_name
 
-        .group if #statements > 0 {
+        .group if #statements > 0 then {
           .assign_one LocalName"self", cls_name
           .group statements
-        } else {}
+        }
 
-        cls_name
+        -- run the inherited callback
+        .if {
+          cond: {"exp",
+            parent_cls_name, "and", parent_cls_name\chain "__inherited"
+          }
+          then: {
+            parent_cls_name\chain "__inherited", {"call", {
+              parent_cls_name, cls_name
+            }}
+          }
+        }
+
+        .group if name then {
+          .assign_one name, cls_name
+        }
+
+        if ret
+          ret cls_name
       }
 
+      hoist_declarations out_body
+
       value = .group {
-        .declare names: {name}
-        .assign {
-          names: {name}
-          values: {value}
+        .group if ntype(name) == "value" then {
+          .declare names: {name}
         }
+
+        .do out_body
       }
 
     value
@@ -502,7 +699,14 @@ class Accumulator
         body = {}
     else
       body = apply_to_last body, (n) ->
-        build.assign_one @value_name, n
+        if types.is_value n
+          build.assign_one @value_name, n
+        else
+          -- just ignore it
+          build.group {
+            {"declare", {@value_name}}
+            n
+          }
       @value_name
 
     update = {
@@ -523,14 +727,25 @@ class Accumulator
 default_accumulator = (node) =>
   Accumulator!\convert node
 
-
 implicitly_return = (scope) ->
+  is_top = true
   fn = (stm) ->
     t = ntype stm
-    if types.manual_return[t] or not types.is_value stm
-      stm
-    elseif types.cascading[t]
+
+    -- expand decorated
+    if t == "decorated"
+      stm = scope.transform.statement stm
+      t = ntype stm
+
+    if types.cascading[t]
+      is_top = false
       scope.transform.statement stm, fn
+    elseif types.manual_return[t] or not types.is_value stm
+      -- remove blank return statement
+      if is_top and t == "return" and stm[2] == ""
+        nil
+      else
+        stm
     else
       if t == "comprehension" and not types.comprehension_has_value stm
         stm
@@ -544,6 +759,38 @@ Value = Transformer {
   while: default_accumulator
   foreach: default_accumulator
 
+  do: (node) =>
+    build.block_exp node[2]
+
+  decorated: (node) =>
+    @transform.statement node
+
+  class: (node) =>
+    build.block_exp { node }
+
+  string: (node) =>
+    delim = node[2]
+
+    convert_part = (part) ->
+      if type(part) == "string" or part == nil
+        {"string", delim, part or ""}
+      else
+        build.chain { base: "tostring", {"call", {part[2]}} }
+
+    -- reduced to single item
+    if #node <= 3
+      return if type(node[3]) == "string"
+        node
+      else
+        convert_part node[3]
+
+    e = {"exp", convert_part node[3]}
+
+    for i=4, #node
+      insert e, ".."
+      insert e, convert_part node[i]
+    e
+
   comprehension: (node) =>
     a = Accumulator!
     node = @transform.statement node, (exp) ->
@@ -551,24 +798,42 @@ Value = Transformer {
     a\wrap node
 
   tblcomprehension: (node) =>
-    _, key_exp, value_exp, clauses = unpack node
+    _, explist, clauses = unpack node
+    key_exp, value_exp = unpack explist
 
     accum = NameProxy "tbl"
-    dest = build.chain { base: accum, {"index", key_exp} }
-    inner = build.assign_one dest, value_exp
+
+    inner = if value_exp
+      dest = build.chain { base: accum, {"index", key_exp} }
+      { build.assign_one dest, value_exp }
+    else
+      -- If we only have single expression then
+      -- unpack the result into key and value
+      key_name, val_name = NameProxy"key", NameProxy"val"
+      dest = build.chain { base: accum, {"index", key_name} }
+      {
+        build.assign names: {key_name, val_name}, values: {key_exp}
+        build.assign_one dest, val_name
+      }
 
     build.block_exp {
       build.assign_one accum, build.table!
-      construct_comprehension {inner}, clauses
+      construct_comprehension inner, clauses
       accum
     }
 
   fndef: (node) =>
     smart_node node
     node.body = apply_to_last node.body, implicitly_return self
+    node.body = {
+      Run => @listen "varargs", -> -- capture event
+      unpack node.body
+    }
+
     node
 
   if: (node) => build.block_exp { node }
+  unless: (node) =>build.block_exp { node }
   with: (node) => build.block_exp { node }
   switch: (node) =>
     build.block_exp { node }
@@ -576,7 +841,18 @@ Value = Transformer {
   -- pull out colon chain
   chain: (node) =>
     stub = node[#node]
-    if type(stub) == "table" and stub[1] == "colon_stub"
+
+    -- escape lua keywords used in dot accessors
+    for i=3,#node
+      part = node[i]
+      if ntype(part) == "dot" and data.lua_keywords[part[2]]
+        node[i] = { "index", {"string", '"', part[2]} }
+
+    if ntype(node[2]) == "string"
+      -- add parens if callee is raw string
+      node[2] = {"parens", node[2] }
+    elseif type(stub) == "table" and stub[1] == "colon_stub"
+      -- convert colon stub into code
       table.remove node, #node
 
       base_name = NameProxy "base"
@@ -612,12 +888,16 @@ Value = Transformer {
     fn = nil
     arg_list = {}
 
-    insert body, Run =>
-      if @has_varargs
-        insert arg_list, "..."
-        insert fn.args, {"..."}
+    fn = smart_node build.fndef body: {
+      Run =>
+        @listen "varargs", ->
+          insert arg_list, "..."
+          insert fn.args, {"..."}
+          @unlisten "varargs"
 
-    fn = smart_node build.fndef body: body
+      unpack body
+    }
+
     build.chain { base: {"parens", fn}, {"call", arg_list} }
 }
 

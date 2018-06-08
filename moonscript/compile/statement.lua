@@ -2,6 +2,7 @@ module("moonscript.compile", package.seeall)
 local util = require("moonscript.util")
 require("moonscript.compile.format")
 local dump = require("moonscript.dump")
+local transform = require("moonscript.transform")
 local reversed = util.reversed
 local ntype
 do
@@ -11,11 +12,17 @@ end
 local concat, insert = table.concat, table.insert
 line_compile = {
   raw = function(self, node)
-    local _, text = unpack(node)
-    return self:add(text)
+    return self:add(node[2])
+  end,
+  lines = function(self, node)
+    local _list_0 = node[2]
+    for _index_0 = 1, #_list_0 do
+      local line = _list_0[_index_0]
+      self:add(line)
+    end
   end,
   declare = function(self, node)
-    local _, names = unpack(node)
+    local names = node[2]
     local undeclared = self:declare(names)
     if #undeclared > 0 then
       do
@@ -23,7 +30,7 @@ line_compile = {
         _with_0:append_list((function()
           local _accum_0 = { }
           local _len_0 = 0
-          local _list_0 = names
+          local _list_0 = undeclared
           for _index_0 = 1, #_list_0 do
             local name = _list_0[_index_0]
             _len_0 = _len_0 + 1
@@ -33,6 +40,25 @@ line_compile = {
         end)(), ", ")
         return _with_0
       end
+    end
+  end,
+  declare_with_shadows = function(self, node)
+    local names = node[2]
+    self:declare(names)
+    do
+      local _with_0 = self:line("local ")
+      _with_0:append_list((function()
+        local _accum_0 = { }
+        local _len_0 = 0
+        local _list_0 = names
+        for _index_0 = 1, #_list_0 do
+          local name = _list_0[_index_0]
+          _len_0 = _len_0 + 1
+          _accum_0[_len_0] = self:name(name)
+        end
+        return _accum_0
+      end)(), ", ")
+      return _with_0
     end
   end,
   assign = function(self, node)
@@ -123,31 +149,21 @@ line_compile = {
     end
     return root
   end,
+  ["repeat"] = function(self, node)
+    local cond, block = unpack(node, 2)
+    do
+      local _with_0 = self:block("repeat", self:line("until ", self:value(cond)))
+      _with_0:stms(block)
+      return _with_0
+    end
+  end,
   ["while"] = function(self, node)
     local _, cond, block = unpack(node)
-    local out
-    if is_non_atomic(cond) then
-      do
-        local _with_0 = self:block("while true do")
-        _with_0:stm({
-          "if",
-          {
-            "not",
-            cond
-          },
-          {
-            {
-              "break"
-            }
-          }
-        })
-        out = _with_0
-      end
-    else
-      out = self:block(self:line("while ", self:value(cond), " do"))
+    do
+      local _with_0 = self:block(self:line("while ", self:value(cond), " do"))
+      _with_0:stms(block)
+      return _with_0
     end
-    out:stms(block)
-    return out
   end,
   ["for"] = function(self, node)
     local _, name, bounds, block = unpack(node)
@@ -157,12 +173,15 @@ line_compile = {
     }), " do")
     do
       local _with_0 = self:block(loop)
+      _with_0:declare({
+        name
+      })
       _with_0:stms(block)
       return _with_0
     end
   end,
   foreach = function(self, node)
-    local _, names, exp, block = unpack(node)
+    local _, names, exps, block = unpack(node)
     local loop
     do
       local _with_0 = self:line()
@@ -178,11 +197,24 @@ line_compile = {
         end
         return _accum_0
       end)(), ", ")
-      _with_0:append(" in ", self:value(exp), " do")
+      _with_0:append(" in ")
+      _with_0:append_list((function()
+        local _accum_0 = { }
+        local _len_0 = 0
+        local _list_0 = exps
+        for _index_0 = 1, #_list_0 do
+          local exp = _list_0[_index_0]
+          _len_0 = _len_0 + 1
+          _accum_0[_len_0] = self:value(exp)
+        end
+        return _accum_0
+      end)(), ",")
+      _with_0:append(" do")
       loop = _with_0
     end
     do
       local _with_0 = self:block(loop)
+      _with_0:declare(names)
       _with_0:stms(block)
       return _with_0
     end
