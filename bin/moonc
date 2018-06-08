@@ -1,10 +1,10 @@
 #!/usr/bin/env lua
 
-module("moonscript", package.seeall)
+local parse = require "moonscript.parse"
+local compile = require "moonscript.compile"
+local util = require "moonscript.util"
 
-require "moonscript.parse"
-require "moonscript.compile"
-require "moonscript.util"
+local dump_tree = require"moonscript.dump".tree
 
 require "alt_getopt"
 require "lfs"
@@ -119,7 +119,7 @@ function compile_file(text, fname)
 
 	if opts.T then
 		opts.p = true
-		dump.tree(tree)
+		dump_tree(tree)
 		return ""
 	else
 		local compile_time = gettime()
@@ -178,7 +178,7 @@ function scan_directory(root, collected)
 				scan_directory(full_path, collected)
 			end
 
-			if fname:match(".moon") then
+			if fname:match("%.moon$") then
 				table.insert(collected, full_path)
 			end
 		end
@@ -267,7 +267,8 @@ function get_sleep_func()
 		require "socket"
 		sleep = socket.sleep
 	end) then
-		sleep = moonscript._sleep
+		-- This is set by moonc.c in windows binaries
+		sleep = require("moonscript")._sleep
 	end
 	if not sleep then
 		error("Missing sleep function; install LuaSocket")

@@ -1,14 +1,16 @@
-module("moonscript", package.seeall)
-require("moonscript.compile")
-require("moonscript.parse")
-require("moonscript.util")
+local compile = require("moonscript.compile")
+local parse = require("moonscript.parse")
 local concat, insert = table.concat, table.insert
-local split, dump = util.split, util.dump
+local split, dump, get_options, unpack
+do
+  local _table_0 = require("moonscript.util")
+  split, dump, get_options, unpack = _table_0.split, _table_0.dump, _table_0.get_options, _table_0.unpack
+end
 local lua = {
   loadstring = loadstring
 }
-dirsep = "/"
-line_tables = { }
+local dirsep = "/"
+local line_tables = require("moonscript.line_tables")
 local create_moonpath
 create_moonpath = function(package_path)
   local paths = split(package_path, ";")
@@ -20,6 +22,7 @@ create_moonpath = function(package_path)
   end
   return concat(paths, ";")
 end
+local to_lua
 to_lua = function(text, options)
   if options == nil then
     options = { }
@@ -38,6 +41,7 @@ to_lua = function(text, options)
   end
   return code, ltable
 end
+local moon_loader
 moon_loader = function(name)
   local name_path = name:gsub("%.", dirsep)
   local file, file_path = nil, nil
@@ -63,15 +67,15 @@ if not package.moonpath then
 end
 local init_loader
 init_loader = function()
-  return insert(package.loaders, 2, moon_loader)
+  return insert(package.loaders or package.searchers, 2, moon_loader)
 end
-if not _G.moon_no_loader then
+if not (_G.moon_no_loader) then
   init_loader()
 end
-loadstring = function(str, chunk_name, options)
-  if options == nil then
-    options = nil
-  end
+local loadstring
+loadstring = function(...)
+  local options, str, chunk_name, mode, env = get_options(...)
+  chunk_name = chunk_name or "=(moonscript.loadstring)"
   local passed, code, ltable = pcall(function()
     return to_lua(str, options)
   end)
@@ -81,21 +85,33 @@ loadstring = function(str, chunk_name, options)
   if chunk_name then
     line_tables[chunk_name] = ltable
   end
-  return lua.loadstring(code, chunk_name or "=(moonscript.loadstring)")
+  return (lua.loadstring or lua.load)(code, chunk_name, unpack({
+    mode,
+    env
+  }))
 end
-loadfile = function(fname, options)
-  if options == nil then
-    options = nil
-  end
+local loadfile
+loadfile = function(fname, ...)
   local file, err = io.open(fname)
   if not file then
     return nil, err
   end
   local text = assert(file:read("*a"))
   file:close()
-  return loadstring(text, fname, options)
+  return loadstring(text, fname, ...)
 end
-dofile = function(fname, options)
-  local f = assert(loadfile(fname))
+local dofile
+dofile = function(...)
+  local f = assert(loadfile(...))
   return f()
 end
+return {
+  _NAME = "moonscript",
+  to_lua = to_lua,
+  moon_chunk = moon_chunk,
+  moon_loader = moon_loader,
+  dirsep = dirsep,
+  dofile = dofile,
+  loadfile = loadfile,
+  loadstring = loadstring
+}

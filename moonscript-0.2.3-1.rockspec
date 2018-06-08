@@ -1,17 +1,17 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "moonscript"
-version = "0.2.2-1"
+version = "0.2.3-1"
 
 -- LuaDist source
 source = {
-  tag = "0.2.2-1",
+  tag = "0.2.3-1",
   url = "git://github.com/LuaDist-testing/moonscript.git"
 }
 -- Original source
 -- source = {
 -- 	url = "git://github.com/leafo/moonscript.git",
--- 	branch = "v0.2.2"
+-- 	branch = "v0.2.3"
 -- }
 
 description = {
@@ -31,21 +31,23 @@ dependencies = {
 build = {
 	type = "builtin",
 	modules = {
+		["moon"] = "moon/init.lua",
+		["moon.all"] = "moon/all.lua",
 		["moonscript"] = "moonscript/init.lua",
 		["moonscript.compile"] = "moonscript/compile.lua",
 		["moonscript.compile.statement"] = "moonscript/compile/statement.lua",
 		["moonscript.compile.value"] = "moonscript/compile/value.lua",
-		["moonscript.compile.format"] = "moonscript/compile/format.lua",
-		["moonscript.transform"] = "moonscript/transform.lua",
-		["moonscript.types"] = "moonscript/types.lua",
-		["moonscript.parse"] = "moonscript/parse.lua",
-		["moonscript.dump"] = "moonscript/dump.lua",
 		["moonscript.data"] = "moonscript/data.lua",
-		["moonscript.util"] = "moonscript/util.lua",
+		["moonscript.dump"] = "moonscript/dump.lua",
 		["moonscript.errors"] = "moonscript/errors.lua",
+		["moonscript.line_tables"] = "moonscript/line_tables.lua",
+		["moonscript.parse"] = "moonscript/parse.lua",
+		["moonscript.transform"] = "moonscript/transform.lua",
+		["moonscript.transform.destructure"] = "moonscript/transform/destructure.lua",
+		["moonscript.transform.names"] = "moonscript/transform/names.lua",
+		["moonscript.types"] = "moonscript/types.lua",
+		["moonscript.util"] = "moonscript/util.lua",
 		["moonscript.version"] = "moonscript/version.lua",
-		["moon"] = "moon/init.lua",
-		["moon.all"] = "moon/all.lua",
 	},
 	install = {
 		bin = { "bin/moon", "bin/moonc" }

@@ -1,19 +1,15 @@
 
-module "moonscript.compile", package.seeall
-
 util = require "moonscript.util"
 data = require "moonscript.data"
 
-require "moonscript.compile.format"
-
 import ntype from require "moonscript.types"
+import user_error from require "moonscript.errors"
 import concat, insert from table
-
-export value_compile
+import unpack from util
 
 table_delim = ","
 
-value_compile =
+value_compilers =
   -- list of values separated by binary operators
   exp: (node) =>
     _comp = (i, value) ->
@@ -116,9 +112,9 @@ value_compile =
       \stms block
 
       -- inject more args if the block manipulated arguments
+      -- only varargs bubbling does this currently
       if #args > #arg_names -- will only work for simple adjustments
-        arg_names = for arg in *args
-          arg[1]
+        arg_names = [arg[1] for arg in *args]
 
       .header = "function("..concat(arg_names, ", ")..")"
 
@@ -155,8 +151,8 @@ value_compile =
   minus: (node) =>
     @line "-", @value node[2]
 
-  temp_name: (node) =>
-    node\get_name self
+  temp_name: (node, ...) =>
+    node\get_name self, ...
 
   number: (node) =>
     node[2]
@@ -189,3 +185,6 @@ value_compile =
       @send "varargs"
 
     tostring value
+
+
+{ :value_compilers }

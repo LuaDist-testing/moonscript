@@ -1,18 +1,12 @@
-module "moonscript.compile", package.seeall
 
 util = require "moonscript.util"
+data = require "moonscript.data"
 
-require "moonscript.compile.format"
-dump = require "moonscript.dump"
-transform = require "moonscript.transform"
-
-import reversed from util
+import reversed, unpack from util
 import ntype from require "moonscript.types"
 import concat, insert from table
 
-export line_compile
-
-line_compile =
+statement_compilers =
   raw: (node) => @add node[2]
 
   lines: (node) =>
@@ -109,12 +103,13 @@ line_compile =
 
     loop = with @line!
       \append "for "
-      \append_list [@name name for name in *names], ", "
-      \append " in "
-      \append_list [@value exp for exp in *exps], ","
-      \append " do"
 
     with @block loop
+      loop\append_list [\name name, false for name in *names], ", "
+      loop\append " in "
+      loop\append_list [@value exp for exp in *exps], ","
+      loop\append " do"
+
       \declare names
       \stms block
 
@@ -140,3 +135,5 @@ line_compile =
     with @block!
       \stms node[2]
 
+
+{ :statement_compilers }

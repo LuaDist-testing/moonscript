@@ -1,14 +1,13 @@
 
-module "moonscript.errors", package.seeall
-moon = require "moonscript"
 util = require "moonscript.util"
 
-require "lpeg"
+lpeg = require "lpeg"
 
 import concat, insert from table
 import split, pos_to_line from util
 
-export rewrite_traceback, truncate_traceback
+user_error = (...) ->
+  error {"user-error", ...}
 
 -- find the line number of `pos` chars into fname
 lookup_line = (fname, pos, cache) ->
@@ -43,7 +42,7 @@ truncate_traceback = (traceback, chunk_func="moonscript_chunk") ->
   concat traceback, "\n"
 
 rewrite_traceback = (text, err) ->
-  line_tables = moon.line_tables
+  line_tables = require "moonscript.line_tables"
   import V, S, Ct, C from lpeg
   header_text = "stack traceback:"
 
@@ -82,4 +81,7 @@ rewrite_traceback = (text, err) ->
     header_text
     "\t" .. concat match, "\n\t"
   }, "\n"
+
+
+{ :rewrite_traceback, :truncate_traceback, :user_error }
 

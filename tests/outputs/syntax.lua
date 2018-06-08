@@ -91,10 +91,10 @@ x = -hello(world(one(two)))
 local hi = -"herfef"
 x = -(function()
   local _accum_0 = { }
-  local _len_0 = 0
+  local _len_0 = 1
   for x in x do
-    _len_0 = _len_0 + 1
     _accum_0[_len_0] = x
+    _len_0 = _len_0 + 1
   end
   return _accum_0
 end)()
@@ -105,6 +105,9 @@ if not (cool) then
   print("hello")
 end
 if not (1212 and 3434) then
+  print("hello")
+end
+for i = 1, 10 do
   print("hello")
 end
 print("nutjob")
@@ -168,6 +171,9 @@ hello = {
   ["function"] = "okay",
   good = 230203
 }
+div({
+  class = "cool"
+})
 _ = 5 + what(wack)
 what(whack + 5)
 _ = 5 - what(wack)

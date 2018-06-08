@@ -1,16 +1,23 @@
 
-module "moonscript.util", package.seeall
-
-export moon
-export pos_to_line, get_closest_line, get_line
-export reversed, trim, split
-export dump, debug_posmap
-
 import concat from table
+
+unpack = unpack or table.unpack
+type = type
 
 moon =
   is_object: (value) -> -- is a moonscript object
     type(value) == "table" and value.__class
+
+  is_a: (thing, t) ->
+    return false unless type(thing) == "table"
+    cls = thing.__class
+    while cls
+      if cls == t
+        return true
+      cls = cls.__parent
+
+    false
+
   type: (value) -> -- the moonscript object class
     base_type = type value
     if base_type == "table"
@@ -25,12 +32,8 @@ pos_to_line = (str, pos) ->
     line += 1
   line
 
-get_closest_line = (str, line_num) ->
-  line = get_line str, line_num
-  if (not line or trim(line) == "") and line_num > 1
-    get_closest_line(str, line_num - 1)
-  else
-    line, line_num
+trim = (str) ->
+  str\match "^%s*(.-)%s*$"
 
 get_line = (str, line_num) ->
   -- todo: this returns an extra blank line at the end
@@ -38,13 +41,17 @@ get_line = (str, line_num) ->
     return line if line_num == 1
     line_num -= 1
 
+get_closest_line = (str, line_num) ->
+  line = get_line str, line_num
+  if (not line or trim(line) == "") and line_num > 1
+    get_closest_line(str, line_num - 1)
+  else
+    line, line_num
+
 reversed = (seq) ->
   coroutine.wrap ->
     for i=#seq,1,-1
       coroutine.yield i, seq[i]
-
-trim = (str) ->
-  str\match "^%s*(.-)%s*$"
 
 split = (str, delim) ->
   return {} if str == ""
@@ -90,5 +97,40 @@ debug_posmap = (posmap, moon_code, lua_code) ->
 
   concat(lines, "\n")
 
-nil
+setfenv = setfenv or (fn, env) ->
+  local name
+  i = 1
+  while true
+    name = debug.getupvalue fn, i
+    break if not name or name == "_ENV"
+    i += 1
+
+  if name
+    debug.upvaluejoin fn, i, (-> env), 1
+
+  fn
+
+getfenv = getfenv or (fn) ->
+  i = 1
+  while true
+    name, val = debug.getupvalue fn, i
+    break unless name
+    return val if name == "_ENV"
+    i += 1
+  nil
+
+-- moves the last argument to the front if it's a table, or returns empty table
+-- inserted to the front of args
+get_options = (...) ->
+  count = select "#", ...
+  opts = select count, ...
+  if type(opts) == "table"
+    opts, unpack {...}, nil, count - 1
+  else
+    {}, ...
+
+{
+  :moon, :pos_to_line, :get_closest_line, :get_line, :reversed, :trim, :split,
+  :dump, :debug_posmap, :getfenv, :setfenv, :get_options, :unpack
+}
 

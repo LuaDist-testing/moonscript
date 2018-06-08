@@ -104,6 +104,7 @@ x = -[x for x in x]
 print "hello" if cool
 print "hello" unless cool
 print "hello" unless 1212 and 3434 -- hello
+print "hello" for i=1,10
 
 print "nutjob"
 
@@ -156,6 +157,8 @@ hello =
   function: "okay"
   good: 230203
 
+
+div class: "cool"
 
 5 + what wack
 what whack + 5

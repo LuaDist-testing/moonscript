@@ -2,13 +2,13 @@
 require "lfs"
 require "busted"
 
-require "moonscript.parse"
-require "moonscript.compile"
-require "moonscript.util"
-
-import parse, compile, util from moonscript
+parse   = require "moonscript.parse"
+compile = require "moonscript.compile"
+util    = require "moonscript.util"
 
 pattern = ...
+
+import unpack from util
 
 options = {
   in_dir: "tests/inputs",
@@ -33,6 +33,8 @@ gettime = nil
 pcall ->
   require "socket"
   gettime = socket.gettime
+
+gettime or= os.clock
 
 benchmark = (fn) ->
   if gettime
@@ -82,7 +84,10 @@ output_fname = (base) ->
 
 describe "input tests", ->
   inputs = for file in lfs.dir options.in_dir
-    file\match options.input_pattern
+    with match = file\match options.input_pattern
+      continue unless match
+
+  table.sort inputs
   
   for name in *inputs
     input = input_fname name

@@ -1,6 +1,6 @@
     target: reference/index
     template: reference
-    title: MoonScript v0.2.2 - Language Guide
+    title: MoonScript v0.2.3 - Language Guide
     short_name: lang
 --
 MoonScript is a programming language that compiles to
@@ -31,10 +31,10 @@ variable. You can assign multiple names and values at once just like Lua:
     ```
 
 If you wish to create a global variable it must be done using the
-[`export`](#export) keyword.
+[`export`](#export_statement) keyword.
 
-The `local` keyword can be used to forward declare a variable, or shadow an
-existing one.
+The [`local`](#local_statement) keyword can be used to forward declare a
+variable, or shadow an existing one.
 
 ## Update Assignment
 
@@ -163,7 +163,7 @@ automatically includes a `self` argument.
 ### Argument Defaults
 
 It is possible to provide default values for the arguments of a function. An
-argument is determined to be empty if it's value is `nil`. Any `nil` arguments
+argument is determined to be empty if its value is `nil`. Any `nil` arguments
 that have a default value will be replace before the body of the function is run.
 
     ```moon
@@ -415,6 +415,12 @@ Using multiple `for` clauses is the same as using nested loops:
     points = [{x,y} for x in *x_coords for y in *y_coords]
     ```
 
+Numeric for loops can also be used in comprehensions:
+
+    ```moon
+    evens = [i for i=1,100 when i % 2 == 0]
+    ```
+
 ### Table Comprehensions
 
 The syntax for table comprehensions is very similar, only differing by using `{` and
@@ -531,7 +537,7 @@ single line:
 
 A for loop can also be used an expression. The last statement in the body of
 the for loop is coerced into an expression and appended to an accumulating
-table if the value of that expression is not `nil`.
+array table.
 
 Doubling every even number:
 
@@ -543,13 +549,8 @@ Doubling every even number:
         i
     ```
 
-Filtering out odd numbers:
-
-    ```moon
-    my_numbers = {1,2,3,4,5,6}
-    odds = for x in *my_numbers
-      if x % 2 == 1 then x
-    ```
+You can also filter values by combining the for loop expression with the
+[`continue`](#continue) statement.
 
 For loops at the end of a function body are not accumulated into a table for a
 return value (Instead the function will return `nil`). Either an explicit
@@ -646,6 +647,8 @@ Conditionals can also be used in return statements and assignments:
     print message -- prints: I am very tall
     ```
 
+### With Assignment
+
 `if` and `elseif` blocks can take an assignment in place of a conditional
 expression. Upon evaluating the conditional, the assignment will take place and
 the value that was assigned to will be used as the conditional expression. The
@@ -655,6 +658,15 @@ is never available if the value is not truthy.
     ```moon
     if user = database.find_user "moon"
       print user.name
+    ```
+
+    ```moon
+    if hello = os.getenv "hello"
+      print "You have hello", hello
+    elseif world = os.getenv "world"
+      print "you have world", world
+    else
+      print "nothing :("
     ```
 
 ## Line Decorators
@@ -684,11 +696,14 @@ is done with the `==` operator.
     switch name
       when "Robert"
         print "You are robert"
-      when "Dan"
+      when "Dan", "Daniel"
         print "Your name, it's Dan"
       else
         print "I don't know about your name"
     ```
+
+A switch `when` clause can match against multiple values by listing them out
+comma separated.
 
 Switches can be used as expressions as well, here we can assign the result of
 the switch to a variable:
@@ -1093,6 +1108,70 @@ The `export` statement can also take special symbols `*` and `^`.
 current scope. `export ^` will export all proper names, names that begin with a
 capital letter.
 
+## Local Statement
+
+Sometimes you want to declare a variable name before the first time you assign
+it. The `local` statement can be used to do that.
+
+In this example we declare the variable `a` in the outer scope so its value
+can be accessed after the `if` statement. If there was no `local` statement then
+`a` would only be accessible inside the `if` statement.
+
+    ```moon
+    local a
+    if something
+      a = 1
+    print a
+    ```
+
+`local` can also be used to shadow existing variables for the rest of a scope.
+
+    ```moon
+    x = 10
+    if something
+      local x
+      x = 12
+    print x -- prints 10
+    ```
+
+When you have one function that calls another, you typically order them such
+that the second function can access the first. If both functions happen to
+call each other, then you must forward declare the names:
+
+    ```moon
+    local first, second
+
+    first = ->
+      second!
+
+    second = ->
+      first!
+    ```
+
+The same problem occurs with declaring classes and regular values too.
+
+Because forward declaring is often better than manually ordering your assigns,
+a special form of `local` is provided:
+
+    ```moon
+    local *
+
+    first = ->
+      print data
+      second!
+
+    second = ->
+      first!
+
+    data = {}
+    ```
+
+`local *` will forward declare all names below it in the current scope.
+
+Similarly to [`export`](#export_all_and_export_proper) one more special form is
+provided, `local ^`. This will forward declare all names that begin with a
+capital letter.
+
 ## Import Statement
 
 Often you want to bring some values from a table into the current scope as
@@ -1211,6 +1290,102 @@ statement in its body.
         1234
     }
     ```
+
+## Destructuring Assignment
+
+Destructuring assignment is a way to quickly extract values from a table by
+their name or position in array based tables.
+
+Typically when you see a table literal, `{1,2,3}`, it is on the right hand side
+of an assignment because it is a value. Destructuring assignment swaps the role
+of the table literal, and puts it on the left hand side of an assign
+statement.
+
+This is best explained with examples. Here is how you would unpack the first
+two values from a table:
+
+    ```moon
+    thing = {1,2}
+
+    {a,b} = thing
+    print a,b
+    ```
+
+In the destructuring table literal, the key represents the key to read from the
+right hand side, and the value represents the name the read value will be
+assigned to.
+
+    ```moon
+    obj = {
+      hello: "world"
+      day: "tuesday"
+      length: 20
+    }
+
+    {hello: hello, day: the_day} = obj
+    print hello, the_day
+    ```
+
+This also works with nested data structures as well:
+
+    ```moon
+    obj2 = {
+      numbers: {1,2,3,4}
+      properties: {
+        color: "green"
+        height: 13.5
+      }
+    }
+
+    {numbers: {first, second}} = obj2
+    print first, second, color
+    ```
+If the destructuring statement is complicated, feel free to spread it out over
+a few lines. A slightly more complicated example:
+
+    ```moon
+    {
+      numbers: { first, second }
+      properties: {
+        color: color
+      }
+    } = obj2
+    ```
+
+It's common to extract values from at table and assign them the local variables
+that have the same name as the key. In order to avoid repetition we can use the
+`:` prefix operator:
+
+    ```moon
+    {:concat, :insert} = table
+    ```
+
+This is effectively the same as import, but we can rename fields we want to
+extract by mixing the syntax:
+
+    ```moon
+    {:mix, :max, random: rand } = math
+    ```
+
+### Destructuring In Other Places
+
+Destructuring can also show up in places where an assignment implicitly takes
+place. An example of this is a `for` loop:
+
+
+    ```moon
+    tuples = {
+      {"hello", "world"}
+      {"egg", "head"}
+    }
+
+    for {left, right} in *tuples
+      print left, right
+    ```
+
+We know each element in the array table is a two item tuple, so we can unpack
+it directly in the names clause of the for statement using a destructure.
+
 
 ## Function Stubs
 
@@ -1340,7 +1515,7 @@ way to do this:
 Upon installing MoonScript, a `moonscript` module is made available. The best
 use of this module is making your Lua's require function MoonScript aware.
 
-    ```moon
+    ```lua
     require "moonscript"
     ```
 
@@ -1365,7 +1540,6 @@ built in `load` function, which is run as the module.
 
 ### Load Functions
 
-
 MoonScript provides `moonscript.load`, `moonscript.loadfile`,
 `mooonscript.loadstring`, which are analogous to Lua's `load`, `loadfile`, and
 `loadstring`.
@@ -1375,7 +1549,8 @@ with MoonScript code instead of Lua Code.
 
 
     ```moononly
-    require "moonscript"
+    moonscript = require "moonscript"
+
     fn = moonscript.loadstring 'print "hi!"'
     fn!
     ```
@@ -1386,7 +1561,7 @@ makes it so the file does not implicitly return its last statement.
 
 
     ```moononly
-    require "moonscript"
+    moonscript = require "moonscript"
 
     fn = moonscript.loadstring "10"
     print fn! -- prints "10"
@@ -1437,10 +1612,8 @@ Here is a quick example of how you would compile a MoonScript string to a Lua
 String:
 
     ```moononly
-    require "moonscript.parse"
-    require "moonscript.compile"
-
-    import parse, compile from moonscript
+    parse = require "moonscript.parse"
+    compile = require "moonscript.compile"
 
     moon_code = [[(-> print "hello world")!]]
 

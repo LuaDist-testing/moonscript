@@ -1,27 +1,23 @@
-module "moonscript.compile", package.seeall
 
 util = require "moonscript.util"
 dump = require "moonscript.dump"
-
-require "moonscript.compile.format"
-require "moonscript.compile.statement"
-require "moonscript.compile.value"
-
 transform = require "moonscript.transform"
 
-import NameProxy, LocalName from transform
+import NameProxy, LocalName from require "moonscript.transform.names"
 import Set from require "moonscript.data"
-import ntype from require "moonscript.types"
+import ntype, has_value from require "moonscript.types"
+
+import statement_compilers from require "moonscript.compile.statement"
+import value_compilers from require "moonscript.compile.value"
 
 import concat, insert from table
-import pos_to_line, get_closest_line, trim from util
+import pos_to_line, get_closest_line, trim, unpack from util
 
 mtype = util.moon.type
 
-export tree, value, format_error
-export Block, RootBlock
+indent_char = "  "
 
-local Line, Lines
+local Line, DelayedLine, Lines, Block, RootBlock
 
 -- a buffer for building up lines
 class Lines
@@ -38,26 +34,34 @@ class Lines
         item\render self
       when Block
         item\render self
-      else
+      else -- also captures DelayedLine
         @[#@ + 1] = item
     @
 
   flatten_posmap: (line_no=0, out={}) =>
     posmap = @posmap
     for i, l in ipairs @
-      switch type l
-        when "table"
-          _, line_no = l\flatten_posmap line_no, out
-        when "string"
+      switch mtype l
+        when "string", DelayedLine
           line_no += 1
           out[line_no] = posmap[i]
+        when Lines
+          _, line_no = l\flatten_posmap line_no, out
+        else
+          error "Unknown item in Lines: #{l}"
 
     out, line_no
 
   flatten: (indent=nil, buffer={}) =>
     for i = 1, #@
       l = @[i]
-      switch type l
+      t = mtype l
+
+      if t == DelayedLine
+        l = l\render!
+        t = "string"
+
+      switch t
         when "string"
           insert buffer, indent if indent
           insert buffer, l
@@ -70,8 +74,10 @@ class Lines
 
           insert buffer, "\n"
           last = l
-        when "table"
+        when Lines
            l\flatten indent and indent .. indent_char or indent_char, buffer
+        else
+          error "Unknown item in Lines: #{l}"
     buffer
 
   __tostring: =>
@@ -138,6 +144,16 @@ class Line
   __tostring: =>
     "Line<#{util.dump(@)\sub 1, -2}>"
 
+class DelayedLine
+  new: (fn) =>
+    @prepare = fn
+
+  prepare: ->
+
+  render: =>
+    @prepare!
+    concat @
+
 class Block
   header: "do"
   footer: "end"
@@ -180,6 +196,9 @@ class Block
   get: (name) =>
     @_state[name]
 
+  get_current: (name) =>
+    rawget @_state, name
+
   listen: (name, fn) =>
     @_listeners[name] = fn
 
@@ -200,13 +219,20 @@ class Block
         when NameProxy then name\get_name self
         when "string" then name
 
-      real_name if is_local or real_name and not @has_name real_name
+      continue unless is_local or real_name and not @has_name real_name, true
+      -- put exported names so they can be assigned to in deeper scope
+      @put_name real_name
+      continue if @name_exported real_name
+      real_name
 
-    @put_name name for name in *undeclared
     undeclared
 
   whitelist_names: (names) =>
     @_name_whitelist = Set names
+
+  name_exported: (name) =>
+    return true if @export_all
+    return true if @export_proper and name\match"^%u"
 
   put_name: (name, ...) =>
     value = ...
@@ -216,9 +242,7 @@ class Block
     @_names[name] = value
 
   has_name: (name, skip_exports) =>
-    if not skip_exports
-      return true if @export_all
-      return true if @export_proper and name\match"^[A-Z]"
+    return true if not skip_exports and @name_exported name
 
     yes = @_names[name]
     if yes == nil and @parent
@@ -276,14 +300,15 @@ class Block
       \append ...
 
   is_stm: (node) =>
-    line_compile[ntype node] != nil
+    statement_compilers[ntype node] != nil
 
   is_value: (node) =>
     t = ntype node
-    value_compile[t] != nil or t == "value"
+    value_compilers[t] != nil or t == "value"
 
   -- line wise compile functions
-  name: (node) => @value node
+  name: (node, ...) => @value node, ...
+
   value: (node, ...) =>
     node = @transform.value node
     action = if type(node) != "table"
@@ -291,7 +316,7 @@ class Block
     else
       node[1]
 
-    fn = value_compile[action]
+    fn = value_compilers[action]
     error "Failed to compile value: "..dump.value node if not fn
 
     out = fn self, node, ...
@@ -313,7 +338,7 @@ class Block
     return if not node -- skip blank statements
     node = @transform.statement node
 
-    result = if fn = line_compile[ntype(node)]
+    result = if fn = statement_compilers[ntype(node)]
       fn self, node, ...
     else
       -- coerce value into statement
@@ -331,7 +356,16 @@ class Block
 
   stms: (stms, ret) =>
     error "deprecated stms call, use transformer" if ret
-    @stm stm for stm in *stms
+    {:current_stms, :current_stm_i} = @
+
+    @current_stms = stms
+    for i=1,#stms
+      @current_stm_i = i
+      @stm stms[i]
+
+    @current_stms = current_stms
+    @current_stm_i = current_stm_i
+
     nil
 
   splice: (fn) =>
@@ -349,7 +383,7 @@ class RootBlock extends Block
   root_stms: (stms) =>
     unless @options.implicitly_return_root == false
       stms = transform.Statement.transformers.root_stms self, stms
-    @stm s for s in *stms
+    @stms stms
 
   render: =>
     -- print @_lines
@@ -398,3 +432,9 @@ tree = (tree, options={}) ->
     posmap = scope._lines\flatten_posmap!
     lua_code, posmap
 
+-- mmmm
+with data = require "moonscript.data"
+  for name, cls in pairs {:Line, :Lines, :DelayedLine}
+    data[name] = cls
+
+{ :tree, :value, :format_error, :Block, :RootBlock }

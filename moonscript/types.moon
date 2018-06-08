@@ -1,12 +1,9 @@
-module "moonscript.types", package.seeall
+
 util = require "moonscript.util"
 data = require "moonscript.data"
 
-export ntype, smart_node, build, is_value
-export is_slice, manual_return, cascading, value_is_singular
-export comprehension_has_value
-
 import insert from table
+import unpack from util
 
 -- implicit return does not work on these statements
 manual_return = data.Set{"foreach", "for", "while", "return"}
@@ -15,13 +12,6 @@ manual_return = data.Set{"foreach", "for", "while", "return"}
 -- All cascading statement transform functions accept a second arugment that
 -- is the transformation to apply to the last statement in their body
 cascading = data.Set{ "if", "unless", "with", "switch", "class", "do" }
-
-is_value = (stm) ->
-  import compile, transform from moonscript
-  compile.Block\is_value(stm) or transform.Value\can_transform stm
-
-comprehension_has_value = (comp) ->
-  is_value comp[2]
 
 -- type of node as string
 ntype = (node) ->
@@ -32,6 +22,31 @@ ntype = (node) ->
       node[1]
     else
       "value"
+
+mtype = do
+  moon_type = util.moon.type
+  -- lets us check a smart node without throwing an error
+  (val) ->
+    mt = getmetatable val
+    return "table" if mt and mt.smart_node
+    moon_type val
+
+-- does this always return a value
+has_value = (node) ->
+  if ntype(node) == "chain"
+    ctype = ntype(node[#node])
+    ctype != "call" and ctype != "colon"
+  else
+    true
+
+is_value = (stm) ->
+  compile = require "moonscript.compile"
+  transform = require "moonscript.transform"
+
+  compile.Block\is_value(stm) or transform.Value\can_transform stm
+
+comprehension_has_value = (comp) ->
+  is_value comp[2]
 
 value_is_singular = (node) ->
   type(node) != "table" or node[1] != "exp" or #node == 2
@@ -136,20 +151,33 @@ build = setmetatable {
     rawget self, name
 }
 
+smart_node_mt = setmetatable {}, {
+  __index: (node_type) =>
+    index = key_table[node_type]
+    mt = {
+      smart_node: true
+
+      __index: (node, key) ->
+        if index[key]
+          rawget node, index[key]
+        elseif type(key) == "string"
+          error "unknown key: `"..key.."` on node type: `"..ntype(node).. "`"
+
+      __newindex: (node, key, value) ->
+        key = index[key] if index[key]
+        rawset node, key, value
+    }
+    self[node_type] = mt
+    mt
+}
+
 -- makes it so node properties can be accessed by name instead of index
 smart_node = (node) ->
-  index = key_table[ntype node]
-  if not index then return node
-  setmetatable node, {
-    __index: (node, key) ->
-      if index[key]
-        rawget node, index[key]
-      elseif type(key) == "string"
-        error "unknown key: `"..key.."` on node type: `"..ntype(node).. "`"
+  setmetatable node, smart_node_mt[ntype node]
 
-    __newindex: (node, key, value) ->
-      key = index[key] if index[key]
-      rawset node, key, value
-  }
-    
-nil
+{
+  :ntype, :smart_node, :build, :is_value, :is_slice, :manual_return,
+  :cascading, :value_is_singular, :comprehension_has_value, :has_value,
+  :mtype
+}
+

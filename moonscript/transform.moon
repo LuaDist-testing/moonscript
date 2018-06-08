@@ -1,57 +1,16 @@
 
-module "moonscript.transform", package.seeall
-
 types = require "moonscript.types"
 util = require "moonscript.util"
 data = require "moonscript.data"
 
-import reversed from util
-import ntype, build, smart_node, is_slice, value_is_singular from types
+import reversed, unpack from util
+import ntype, mtype, build, smart_node, is_slice, value_is_singular from types
 import insert from table
+import NameProxy, LocalName from require "moonscript.transform.names"
 
-mtype = util.moon.type
-
-export Statement, Value, NameProxy, LocalName, Run
+destructure = require "moonscript.transform.destructure"
 
 local implicitly_return
-
--- always declares as local
-class LocalName
-  new: (@name) => self[1] = "temp_name"
-  get_name: => @name
-
-class NameProxy
-  new: (@prefix) =>
-    self[1] = "temp_name"
-
-  get_name: (scope) =>
-    if not @name
-      @name = scope\free_name @prefix, true
-    @name
-
-  chain: (...) =>
-    items = {...} -- todo: fix ... propagation
-    items = for i in *items
-      if type(i) == "string"
-        {"dot", i}
-      else
-        i
-
-    build.chain {
-      base: self
-      unpack items
-    }
-
-  index: (key) =>
-    build.chain {
-      base: self, {"index", key}
-    }
-
-  __tostring: =>
-    if @name
-      ("name<%s>")\format @name
-    else
-      ("name<prefix(%s)>")\format @prefix
 
 class Run
   new: (@fn) =>
@@ -67,7 +26,7 @@ apply_to_last = (stms, fn) ->
   last_exp_id = 0
   for i = #stms, 1, -1
     stm = stms[i]
-    if stm and util.moon.type(stm) != Run
+    if stm and mtype(stm) != Run
       last_exp_id = i
       break
 
@@ -83,30 +42,22 @@ is_singular = (body) ->
   if "group" == ntype body
     is_singular body[2]
   else
-    true
+    body[1]
 
-find_assigns = (body, out={}) ->
-  for thing in *body
-    switch thing[1]
+-- this mutates body searching for assigns
+extract_declarations = (body=@current_stms, start=@current_stm_i + 1, out={}) =>
+  for i=start,#body
+    stm = body[i]
+    continue if stm == nil
+    stm = @transform.statement stm
+    body[i] = stm
+    switch stm[1]
+      when "assign", "declare"
+        for name in *stm[2]
+          insert out, name if type(name) == "string"
       when "group"
-        find_assigns thing[2], out
-      when "assign"
-        table.insert out, thing[2] -- extract names
+        extract_declarations @, stm[2], 1, out
   out
-
-hoist_declarations = (body) ->
-  assigns = {}
-
-  -- hoist the plain old assigns
-  for names in *find_assigns body
-    for name in *names
-      table.insert assigns, name if type(name) == "string"
-
-  -- insert after runs
-  idx = 1
-  while mtype(body[idx]) == Run do idx += 1
-
-  table.insert body, idx, {"declare", assigns}
 
 expand_elseif_assign = (ifstm) ->
   for i = 4, #ifstm
@@ -181,14 +132,19 @@ construct_comprehension = (inner, clauses) ->
   current_stms = inner
   for _, clause in reversed clauses
     t = clause[1]
-    current_stms = if t == "for"
-      _, names, iter = unpack clause
-      {"foreach", names, {iter}, current_stms}
-    elseif t == "when"
-      _, cond = unpack clause
-      {"if", cond, current_stms}
-    else
-      error "Unknown comprehension clause: "..t
+    current_stms = switch t
+      when "for"
+        {_, name, bounds} = clause
+        {"for", name, bounds, current_stms}
+      when "foreach"
+        {_, names, iter} = clause
+        {"foreach", names, {iter}, current_stms}
+      when "when"
+        {_, cond} = clause
+        {"if", cond, current_stms}
+      else
+        error "Unknown comprehension clause: "..t
+
     current_stms = {current_stms}
 
   current_stms[1]
@@ -197,8 +153,19 @@ Statement = Transformer {
   root_stms: (body) =>
     apply_to_last body, implicitly_return @
 
+  declare_glob: (node) =>
+    names = extract_declarations @
+
+    if node[2] == "^"
+      names = for name in *names
+        continue unless name\match "^%u"
+        name
+
+    {"declare", names}
+
   assign: (node) =>
     names, values = unpack node, 2
+
     -- bubble cascading assigns
     transformed = if #values == 1
       value = values[1]
@@ -220,7 +187,13 @@ Statement = Transformer {
           @transform.statement value, ret, node
         }
 
-    transformed or node
+    node = transformed or node
+
+    if destructure.has_destructure names
+      return destructure.split_assign node
+
+    -- print util.dump node
+    node
 
   continue: (node) =>
     continue_name = @send "continue"
@@ -327,11 +300,24 @@ Statement = Transformer {
     -- expand assign in cond
     if ntype(node[2]) == "assign"
       _, assign, body = unpack node
-      name = assign[2][1]
-      return build["do"] {
-        assign
-        {"if", name, unpack node, 3}
-      }
+      if destructure.has_destructure assign[2]
+        name = NameProxy "des"
+
+        body = {
+          destructure.build_assign assign[2][1], name
+          build.group node[3]
+        }
+
+        return build.do {
+          build.assign_one name, assign[3][1]
+          {"if", name, body, unpack node, 4}
+        }
+      else
+        name = assign[2][1]
+        return build["do"] {
+          assign
+          {"if", name, unpack node, 3}
+        }
 
     node = expand_elseif_assign node
 
@@ -372,6 +358,18 @@ Statement = Transformer {
   foreach: (node) =>
     smart_node node
     source = unpack node.iter
+
+    destructures = {}
+    node.names = for i, name in ipairs node.names
+      if ntype(name) == "table"
+        with proxy = NameProxy "des"
+          insert destructures, destructure.build_assign name, proxy
+      else
+        name
+
+    if next destructures
+      insert destructures, build.group node.body
+      node.body = destructures
 
     if ntype(source) == "unpack"
       list = source[2]
@@ -427,13 +425,23 @@ Statement = Transformer {
 
     -- convert switch conds into if statment conds
     convert_cond = (cond) ->
-      t, case_exp, body = unpack cond
+      t, case_exps, body = unpack cond
       out = {}
       insert out, t == "case" and "elseif" or "else"
       if  t != "else"
-        insert out, {"exp", case_exp, "==", exp_name} if t != "else"
+        cond_exp = {}
+        for i, case in ipairs case_exps
+          if i == 1
+            insert cond_exp, "exp"
+          else
+            insert cond_exp, "or"
+
+          case = {"parens", case} unless value_is_singular case
+          insert cond_exp, {"exp", case, "==", exp_name}
+
+        insert out, cond_exp
       else
-        body = case_exp
+        body = case_exps
 
       if ret
         body = apply_to_last body, ret
@@ -476,12 +484,12 @@ Statement = Transformer {
               insert properties, tuple
 
     -- find constructor
-    constructor = nil
+    local constructor
     properties = for tuple in *properties
       key = tuple[1]
       if key[1] == "key_literal" and key[2] == constructor_name
         constructor = tuple[2]
-        nil
+        continue
       else
         tuple
 
@@ -490,7 +498,7 @@ Statement = Transformer {
     self_name = NameProxy "self"
     cls_name = NameProxy "class"
 
-    if not constructor
+    unless constructor
       constructor = build.fndef {
         args: {{"..."}}
         arrow: "fat"
@@ -503,9 +511,6 @@ Statement = Transformer {
           }
         }
       }
-    else
-      smart_node constructor
-      constructor.arrow = "fat"
 
     real_name = name or parent_assign and parent_assign[2][1]
     real_name = switch ntype real_name
@@ -610,6 +615,8 @@ Statement = Transformer {
             else
               parent_cls_name
 
+        {"declare_glob", "*"}
+
         .assign_one parent_cls_name, parent_val == "" and "nil" or parent_val
         .assign_one base_name, {"table", properties}
         .assign_one base_name\chain"__index", base_name
@@ -655,8 +662,6 @@ Statement = Transformer {
           ret cls_name
       }
 
-      hoist_declarations out_body
-
       value = .group {
         .group if ntype(name) == "value" then {
           .declare names: {name}
@@ -686,17 +691,18 @@ class Accumulator
   wrap: (node) =>
     build.block_exp {
       build.assign_one @accum_name, build.table!
-      build.assign_one @len_name, 0
+      build.assign_one @len_name, 1
       node
       @accum_name
     }
 
   -- mutates the body of a loop construct to save last value into accumulator
-  -- can optionally skip nil results
-  mutate_body: (body, skip_nil=true) =>
-    val = if not skip_nil and is_singular body
-      with body[1]
-        body = {}
+  mutate_body: (body) =>
+    -- shortcut to write simpler code if body is a single expression
+    single_stm = is_singular body
+    val = if single_stm and types.is_value single_stm
+      body = {}
+      single_stm
     else
       body = apply_to_last body, (n) ->
         if types.is_value n
@@ -710,18 +716,11 @@ class Accumulator
       @value_name
 
     update = {
-      {"update", @len_name, "+=", 1}
       build.assign_one @accum_name\index(@len_name), val
+      {"update", @len_name, "+=", 1}
     }
 
-    if skip_nil
-      table.insert body, build["if"] {
-        cond: {"exp", @value_name, "!=", "nil"}
-        then: update
-      }
-    else
-      table.insert body, build.group update
-
+    insert body, build.group update
     body
 
 default_accumulator = (node) =>
@@ -794,7 +793,7 @@ Value = Transformer {
   comprehension: (node) =>
     a = Accumulator!
     node = @transform.statement node, (exp) ->
-      a\mutate_body {exp}, false
+      a\mutate_body {exp}
     a\wrap node
 
   tblcomprehension: (node) =>
@@ -901,3 +900,4 @@ Value = Transformer {
     build.chain { base: {"parens", fn}, {"call", arg_list} }
 }
 
+{ :Statement, :Value, :Run }
