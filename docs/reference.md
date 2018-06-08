@@ -1,8 +1,9 @@
-target: reference/index
-template: reference
-title: Language Guide
-short_name: lang
---
+{
+  target: "reference/index"
+  template: "reference"
+  title: "Language Guide"
+  short_name: "lang"
+}
 
 MoonScript is a programming language that compiles to
 [Lua](http://www.lua.org). This guide expects the reader to have basic
@@ -1233,7 +1234,7 @@ my_module =
 
 import \add from my_module
 
-print add 22 -- equivalent to calling my_module\get 22
+print add 22 -- equivalent to calling my_module\add 22
 ```
 
 When handing multiple imports you can substitute the comma with a newline and
