@@ -55,7 +55,11 @@ extract_declarations = (body=@current_stms, start=@current_stm_i + 1, out={}) =>
     switch stm[1]
       when "assign", "declare"
         for name in *stm[2]
-          insert out, name if type(name) == "string"
+          if ntype(name) == "ref"
+            insert out, name
+          elseif type(name) == "string"
+            -- TODO: don't use string literal as ref
+            insert out, name
       when "group"
         extract_declarations @, stm[2], 1, out
   out
@@ -120,6 +124,7 @@ class Transformer
 
   transform: (scope, node, ...) =>
     return node if @seen_nodes[node]
+
     @seen_nodes[node] = true
     while true
       transformer = @transformers[ntype node]
@@ -127,8 +132,10 @@ class Transformer
         transformer(scope, node, ...) or node
       else
         node
+
       return node if res == node
       node = res
+
     node
 
   bind: (scope) =>
@@ -169,17 +176,24 @@ Statement = Transformer {
     apply_to_last body, implicitly_return @
 
   return: (node) =>
-    node[2] = Value\transform_once @, node[2]
+    ret_val = node[2]
+    ret_val_type = ntype ret_val
 
-    if "block_exp" == ntype node[2]
-      block_exp = node[2]
-      block_body = block_exp[2]
+    if ret_val_type == "explist" and #ret_val == 2
+      ret_val = ret_val[2]
+      ret_val_type = ntype ret_val
 
-      idx = #block_body
-      node[2] = block_body[idx]
-      block_body[idx] = node
-      return build.group block_body
+    if types.cascading[ret_val_type]
+      return implicitly_return(@) ret_val
 
+    -- flatten things that create block exp
+    if ret_val_type == "chain" or ret_val_type == "comprehension" or ret_val_type == "tblcomprehension"
+      ret_val = Value\transform_once @, ret_val
+      if ntype(ret_val) == "block_exp"
+        return build.group apply_to_last ret_val[2], (stm)->
+            {"return", stm}
+
+    node[2] = ret_val
     node
 
   declare_glob: (node) =>
@@ -187,7 +201,7 @@ Statement = Transformer {
 
     if node[2] == "^"
       names = for name in *names
-        continue unless name\match "^%u"
+        continue unless name[2]\match "^%u"
         name
 
     {"declare", names}
@@ -202,6 +216,12 @@ Statement = Transformer {
     if num_names == 1 and num_values == 1
       first_value = values[1]
       first_name = names[1]
+      first_type = ntype first_value
+
+      -- reduce colon stub chain to block exp
+      if first_type == "chain"
+        first_value = Value\transform_once @, first_value
+        first_type = ntype first_value
 
       switch ntype first_value
         when "block_exp"
@@ -216,6 +236,8 @@ Statement = Transformer {
 
         when "comprehension", "tblcomprehension", "foreach", "for", "while"
           return build.assign_one first_name, Value\transform_once @, first_value
+        else
+          values[1] = first_value
 
     -- bubble cascading assigns
     transformed = if num_values == 1
@@ -321,7 +343,7 @@ Statement = Transformer {
 
     if ntype(stm) == "assign"
       wrapped = build.group {
-        build.declare names: [name for name in *stm[2] when type(name) == "string"]
+        build.declare names: [name for name in *stm[2] when ntype(name) == "ref"]
         wrapped
       }
 
@@ -373,11 +395,12 @@ Statement = Transformer {
     copy_scope = true
     local scope_name, named_assign
 
+
     if ntype(exp) == "assign"
       names, values = unpack exp, 2
       first_name = names[1]
 
-      if ntype(first_name) == "value"
+      if ntype(first_name) == "ref"
         scope_name = first_name
         named_assign = exp
         exp = values[1]
@@ -577,7 +600,16 @@ Statement = Transformer {
       when "nil"
         "nil"
       else
-        {"string", '"', real_name}
+        name_t = type real_name
+        -- TODO: don't use string literal as ref
+        flattened_name = if name_t == "string"
+          real_name
+        elseif name_t == "table" and real_name[1] == "ref"
+          real_name[2]
+        else
+          error "don't know how to extract name from #{name_t}"
+
+        {"string", '"', flattened_name}
 
     cls = build.table {
       {"__init", constructor}
@@ -589,7 +621,7 @@ Statement = Transformer {
     -- looking up a name in the class object
     class_index = if parent_val
       class_lookup = build["if"] {
-        cond: { "exp", "val", "==", "nil" }
+        cond: { "exp", {"ref", "val"}, "==", "nil" }
         then: {
           parent_cls_name\index"name"
         }
@@ -600,7 +632,7 @@ Statement = Transformer {
         args: {{"cls"}, {"name"}}
         body: {
           build.assign_one LocalName"val", build.chain {
-            base: "rawget", {"call", {base_name, "name"}}
+            base: "rawget", {"call", {base_name, {"ref", "name"}}}
           }
           class_lookup
         }
@@ -907,8 +939,8 @@ Value = Transformer {
       base_name = NameProxy "base"
       fn_name = NameProxy "fn"
 
-      is_super = node[2] == "super"
-      @transform.value build.block_exp {
+      is_super = ntype(node[2]) == "ref" and node[2][2] == "super"
+      build.block_exp {
         build.assign {
           names: {base_name}
           values: {node}

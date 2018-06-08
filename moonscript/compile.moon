@@ -7,8 +7,8 @@ import NameProxy, LocalName from require "moonscript.transform.names"
 import Set from require "moonscript.data"
 import ntype, has_value from require "moonscript.types"
 
-import statement_compilers from require "moonscript.compile.statement"
-import value_compilers from require "moonscript.compile.value"
+statement_compilers = require "moonscript.compile.statement"
+value_compilers = require "moonscript.compile.value"
 
 import concat, insert from table
 import pos_to_line, get_closest_line, trim, unpack from util
@@ -44,6 +44,7 @@ class Lines
       switch mtype l
         when "string", DelayedLine
           line_no += 1
+          line_no += 1 for _ in l\gmatch"\n"
           out[line_no] = posmap[i]
         when Lines
           _, line_no = l\flatten_posmap line_no, out
@@ -161,6 +162,8 @@ class Block
   export_all: false
   export_proper: false
 
+  value_compilers: value_compilers
+
   __tostring: =>
     h = if "string" == type @header
       @header
@@ -217,7 +220,11 @@ class Block
           is_local = true
           name\get_name self
         when NameProxy then name\get_name self
-        when "string" then name
+        when "table"
+          name[1] == "ref" and name[2]
+        when "string"
+          -- TODO: don't use string literal as ref
+          name
 
       continue unless is_local or real_name and not @has_name real_name, true
       -- put exported names so they can be assigned to in deeper scope
@@ -255,11 +262,13 @@ class Block
 
   is_local: (node) =>
     t = mtype node
+
     return @has_name(node, false) if t == "string"
     return true if t == NameProxy or t == LocalName
 
-    if t == "table" and node[1] == "chain" and #node == 2
-      return @is_local node[2]
+    if t == "table"
+      if node[1] == "ref" or (node[1] == "chain" and #node == 2)
+        return @is_local node[2]
 
     false
 
@@ -316,10 +325,14 @@ class Block
 
   is_value: (node) =>
     t = ntype node
-    value_compilers[t] != nil or t == "value"
+    @value_compilers[t] != nil or t == "value"
 
-  -- line wise compile functions
-  name: (node, ...) => @value node, ...
+  -- compile name for assign
+  name: (node, ...) =>
+    if type(node) == "string"
+      node
+    else
+      @value node, ...
 
   value: (node, ...) =>
     node = @transform.value node
@@ -328,8 +341,13 @@ class Block
     else
       node[1]
 
-    fn = value_compilers[action]
-    error "Failed to compile value: "..dump.value node if not fn
+    fn = @value_compilers[action]
+    unless fn
+      error {
+        "compile-error"
+        "Failed to find value compiler for: " .. dump.value node
+        node[-1]
+      }
 
     out = fn self, node, ...
 
@@ -404,12 +422,15 @@ class RootBlock extends Block
     table.concat buffer
 
 format_error = (msg, pos, file_str) ->
-  line = pos_to_line file_str, pos
-  line_str, line = get_closest_line file_str, line
-  line_str = line_str or ""
+  line_message = if pos
+    line = pos_to_line file_str, pos
+    line_str, line = get_closest_line file_str, line
+    line_str = line_str or ""
+    (" [%d] >>    %s")\format line, trim line_str
+
   concat {
     "Compile error: "..msg
-    (" [%d] >>    %s")\format line, trim line_str
+    line_message
   }, "\n"
 
 value = (value) ->
@@ -428,21 +449,24 @@ tree = (tree, options={}) ->
     scope\root_stms tree
 
   success, err = coroutine.resume runner
-  if not success
-    error_msg = if type(err) == "table"
+
+  unless success
+    error_msg, error_pos = if type(err) == "table"
       error_type = err[1]
-      if error_type == "user-error"
-        err[2]
-      else
-        error "Unknown error thrown", util.dump error_msg
+      switch err[1]
+        when "user-error", "compile-error"
+          unpack err, 2
+        else
+          -- unknown error, bubble it
+          error "Unknown error thrown", util.dump error_msg
     else
       concat {err, debug.traceback runner}, "\n"
 
-    nil, error_msg, scope.last_pos
-  else
-    lua_code = scope\render!
-    posmap = scope._lines\flatten_posmap!
-    lua_code, posmap
+    return nil, error_msg, error_pos or scope.last_pos
+
+  lua_code = scope\render!
+  posmap = scope._lines\flatten_posmap!
+  lua_code, posmap
 
 -- mmmm
 with data = require "moonscript.data"

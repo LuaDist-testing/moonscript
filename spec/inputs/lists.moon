@@ -3,8 +3,6 @@ hi = [x*2 for _, x in ipairs{1,2,3,4}]
 
 items = {1,2,3,4,5,6}
 
-mm = [@x for @x in ipairs items]
-
 [z for z in ipairs items when z > 4]
 
 rad = [{a} for a in ipairs {
@@ -70,9 +68,5 @@ test = x 1,2,3,4,5
 print thing for thing in *test
 
 -> a = b for row in *rows
-
--- testing implicit return
--> x for x in *things
--> [x for x in *things]
 
 

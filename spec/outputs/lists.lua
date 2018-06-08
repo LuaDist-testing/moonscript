@@ -21,16 +21,6 @@ local items = {
   5,
   6
 }
-local mm
-do
-  local _accum_0 = { }
-  local _len_0 = 1
-  for self.x in ipairs(items) do
-    _accum_0[_len_0] = self.x
-    _len_0 = _len_0 + 1
-  end
-  mm = _accum_0
-end
 for z in ipairs(items) do
   if z > 4 then
     local _ = z
@@ -264,27 +254,10 @@ for _index_0 = 1, #test do
   local thing = test[_index_0]
   print(thing)
 end
-local _
-_ = function()
+return function()
   local _list_0 = rows
   for _index_0 = 1, #_list_0 do
     local row = _list_0[_index_0]
     a = b
   end
-end
-_ = function()
-  for _index_0 = 1, #things do
-    x = things[_index_0]
-    _ = x
-  end
-end
-return function()
-  local _accum_0 = { }
-  local _len_0 = 1
-  for _index_0 = 1, #things do
-    x = things[_index_0]
-    _accum_0[_len_0] = x
-    _len_0 = _len_0 + 1
-  end
-  return _accum_0
 end
