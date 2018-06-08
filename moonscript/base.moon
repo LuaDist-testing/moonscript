@@ -22,7 +22,7 @@ create_moonpath = (package_path) ->
 to_lua = (text, options={}) ->
   if "string" != type text
     t = type text
-    return nil, "expecting string (got ".. t ..")", 2
+    return nil, "expecting string (got ".. t ..")"
 
   tree, err = parse.string text
   if not tree
@@ -30,7 +30,7 @@ to_lua = (text, options={}) ->
 
   code, ltable, pos = compile.tree tree, options
   if not code
-    return nil, compile.format_error(ltable, pos, text), 2
+    return nil, compile.format_error(ltable, pos, text)
 
   code, ltable
 
@@ -46,7 +46,7 @@ moon_loader = (name) ->
   if file
     text = file\read "*a"
     file\close!
-    res, err = loadstring text, file_path
+    res, err = loadstring text, "@#{file_path}"
     if not res
         error file_path .. ": " .. err
 
@@ -72,7 +72,7 @@ loadfile = (fname, ...) ->
   return nil, err unless file
   text = assert file\read "*a"
   file\close!
-  loadstring text, fname, ...
+  loadstring text, "@#{fname}", ...
 
 -- throws errros
 dofile = (...) ->
@@ -102,7 +102,7 @@ remove_loader = ->
 
 {
   _NAME: "moonscript"
-  :insert_loader, :remove_loader, :to_lua, :moon_chunk, :moon_loader, :dirsep,
+  :insert_loader, :remove_loader, :to_lua, :moon_loader, :dirsep,
   :dofile, :loadfile, :loadstring
 }
 

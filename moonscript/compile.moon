@@ -44,6 +44,8 @@ class Lines
       switch mtype l
         when "string", DelayedLine
           line_no += 1
+          out[line_no] = posmap[i]
+
           line_no += 1 for _ in l\gmatch"\n"
           out[line_no] = posmap[i]
         when Lines
@@ -74,7 +76,6 @@ class Lines
               insert buffer, ";"
 
           insert buffer, "\n"
-          last = l
         when Lines
            l\flatten indent and indent .. indent_char or indent_char, buffer
         else
@@ -97,24 +98,22 @@ class Lines
 class Line
   pos: nil
 
-  _append_single: (item) =>
-    if Line == mtype item
-      -- print "appending line to line", item.pos, item
-      @pos = item.pos unless @pos -- bubble pos if there isn't one
-      @_append_single value for value in *item
-    else
-      insert self, item
-    nil
-
   append_list: (items, delim) =>
     for i = 1,#items
-      @_append_single items[i]
+      @append items[i]
       if i < #items then insert self, delim
     nil
 
-  append: (...) =>
-    @_append_single item for item in *{...}
-    nil
+  append: (first, ...) =>
+    if Line == mtype first
+      -- print "appending line to line", first.pos, first
+      @pos = first.pos unless @pos -- bubble pos if there isn't one
+      @append value for value in *first
+    else
+      insert self, first
+
+    if ...
+      @append ...
 
   -- todo: try to remove concats from here
   render: (buffer) =>
@@ -137,7 +136,7 @@ class Line
         else
           insert current, chunk
 
-    if #current > 0
+    if current[1]
       add_current!
 
     buffer
@@ -289,9 +288,11 @@ class Block
     @stm {"assign", {name}, {value}}
     name
 
-  -- add a line object
-  add: (item) =>
-    @_lines\add item
+  -- add something to the line buffer
+  add: (item, pos) =>
+    with @_lines
+      \add item
+      \mark_pos pos if pos
     item
 
   -- todo: pass in buffer as argument
@@ -452,7 +453,6 @@ tree = (tree, options={}) ->
 
   unless success
     error_msg, error_pos = if type(err) == "table"
-      error_type = err[1]
       switch err[1]
         when "user-error", "compile-error"
           unpack err, 2

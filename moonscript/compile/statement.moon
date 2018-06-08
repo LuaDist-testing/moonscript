@@ -1,6 +1,5 @@
 
 util = require "moonscript.util"
-data = require "moonscript.data"
 
 import reversed, unpack from util
 import ntype from require "moonscript.types"
@@ -44,7 +43,7 @@ import concat, insert from table
       if #undeclared == #names and not has_fndef
         \append declare
       else
-        @add declare if #undeclared > 0
+        @add declare, node[-1] if #undeclared > 0
         \append_list [@value name for name in *names], ", "
 
       \append " = "

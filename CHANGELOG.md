@@ -1,9 +1,28 @@
 
+# MoonScript v0.2.6 (2014-6-18)
+
+## Bugs Fixes
+
+* Fixes to posmap generation for multi-line mappings and variable declarations
+* Prefix file name with `@` when loading code so stack traces tread it as file
+* Fix bug where `moonc` couldn't work with absolute paths
+* Improve target file path generation for `moonc`
+
 # MoonScript v0.2.5 (2014-3-5)
 
-## Changes
+## New Things
 
-Code generation altered.
+* New [code coverage tool](http://moonscript.org/reference/#code_coverage) built into `moonc`
+* New [linting tool](http://moonscript.org/reference/#linter) built into `moonc`, identifies global variable references that don't pass whitelist
+* Numbers can have `LL` and `ULL` suffixes for LuaJIT
+
+## Bugs Fixes
+
+* Error messages from `moonc` are written to standard error
+* Moonloader correctly throws error when moon file can't be parsed, instead of skipping the module
+* Line number rewriting is no longer incorrectly offset due to multiline strings
+
+## Code Generation
 
 Bound functions will avoid creating an anonymous function unless necessary.
 
@@ -112,17 +131,7 @@ _ = function()
 end
 ```
 
-## New Things
 
-* New code coverage tool built into `moonc`
-* New linting tool built into `moonc`, identifies global variable references that don't pass whitelist
-* Numbers can have `LL` and `ULL` suffixes for LuaJIT
-
-## Bugs Fixes
-
-* Error messages from `moonc` are written to standard error
-* Moonloader correctly throws error when moon file can't be parsed, instead of skipping the module
-* Line number rewriting is no longer incorrectly offset due to multiline strings
 
 # MoonScript v0.2.4 (2013-07-02)
 

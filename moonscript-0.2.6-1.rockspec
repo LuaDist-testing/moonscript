@@ -1,17 +1,17 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "moonscript"
-version = "0.2.5-1"
+version = "0.2.6-1"
 
 -- LuaDist source
 source = {
-  tag = "0.2.5-1",
+  tag = "0.2.6-1",
   url = "git://github.com/LuaDist-testing/moonscript.git"
 }
 -- Original source
 -- source = {
 -- 	url = "git://github.com/leafo/moonscript.git",
--- 	branch = "v0.2.5"
+-- 	branch = "v0.2.6"
 -- }
 
 description = {
@@ -37,6 +37,7 @@ build = {
 		["moonscript.base"] = "moonscript/base.lua",
 		["moonscript.cmd.coverage"] = "moonscript/cmd/coverage.lua",
 		["moonscript.cmd.lint"] = "moonscript/cmd/lint.lua",
+		["moonscript.cmd.moonc"] = "moonscript/cmd/moonc.lua",
 		["moonscript.compile"] = "moonscript/compile.lua",
 		["moonscript.compile.statement"] = "moonscript/compile/statement.lua",
 		["moonscript.compile.value"] = "moonscript/compile/value.lua",
