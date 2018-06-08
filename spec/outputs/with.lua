@@ -131,6 +131,42 @@ do
     local _with_0 = "jo"
     k.j = _with_0
     print(_with_0:upper())
+  end
+end
+do
+  do
+    local _with_0 = a
+    print(_with_0.b)
+    do
+      local _with_1 = _with_0.c
+      print(_with_1.d)
+    end
+  end
+end
+do
+  do
+    local _with_0 = a
+    do
+      local _with_1 = 2
+      _with_0.b = _with_1
+      print(_with_1.c)
+    end
+  end
+end
+do
+  local _
+  _ = function()
+    do
+      local _with_0 = hi
+      return _with_0.a, _with_0.b
+    end
+  end
+end
+do
+  do
+    local _with_0 = dad
+    _with_0["if"]("yes")
+    local y = _with_0["end"].of["function"]
     return _with_0
   end
 end

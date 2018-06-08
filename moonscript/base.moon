@@ -13,11 +13,11 @@ line_tables = require "moonscript.line_tables"
 
 -- create moon path package from lua package path
 create_moonpath = (package_path) ->
-  paths = split package_path, ";"
-  for i, path in ipairs paths
-    p = path\match "^(.-)%.lua$"
-    if p then paths[i] = p..".moon"
-  concat paths, ";"
+  moonpaths = for path in *split package_path, ";"
+    prefix = path\match "^(.-)%.lua$"
+    continue unless prefix
+    prefix .. ".moon"
+  concat moonpaths, ";"
 
 to_lua = (text, options={}) ->
   if "string" != type text
@@ -38,7 +38,7 @@ moon_loader = (name) ->
   name_path = name\gsub "%.", dirsep
 
   local file, file_path
-  for path in *split package.moonpath, ";"
+  for path in package.moonpath\gmatch "[^;]+"
     file_path = path\gsub "?", name_path
     file = io.open file_path
     break if file
@@ -103,6 +103,6 @@ remove_loader = ->
 {
   _NAME: "moonscript"
   :insert_loader, :remove_loader, :to_lua, :moon_loader, :dirsep,
-  :dofile, :loadfile, :loadstring
+  :dofile, :loadfile, :loadstring, :create_moonpath
 }
 

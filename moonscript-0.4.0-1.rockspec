@@ -1,18 +1,17 @@
 -- This file was automatically generated for the LuaDist project.
 
 package = "moonscript"
-version = "0.3.2-1"
-
+version = "0.4.0-1"
 
 -- LuaDist source
 source = {
-  tag = "0.3.2-1",
+  tag = "0.4.0-1",
   url = "git://github.com/LuaDist-testing/moonscript.git"
 }
 -- Original source
 -- source = {
 -- 	url = "git://github.com/leafo/moonscript.git",
--- 	branch = "v0.3.1"
+-- 	branch = "v0.4.0"
 -- }
 
 description = {
@@ -52,8 +51,15 @@ build = {
 		["moonscript.parse.literals"] = "moonscript/parse/literals.lua",
 		["moonscript.parse.util"] = "moonscript/parse/util.lua",
 		["moonscript.transform"] = "moonscript/transform.lua",
+		["moonscript.transform.accumulator"] = "moonscript/transform/accumulator.lua",
+		["moonscript.transform.class"] = "moonscript/transform/class.lua",
+		["moonscript.transform.comprehension"] = "moonscript/transform/comprehension.lua",
 		["moonscript.transform.destructure"] = "moonscript/transform/destructure.lua",
 		["moonscript.transform.names"] = "moonscript/transform/names.lua",
+		["moonscript.transform.statement"] = "moonscript/transform/statement.lua",
+		["moonscript.transform.statements"] = "moonscript/transform/statements.lua",
+		["moonscript.transform.transformer"] = "moonscript/transform/transformer.lua",
+		["moonscript.transform.value"] = "moonscript/transform/value.lua",
 		["moonscript.types"] = "moonscript/types.lua",
 		["moonscript.util"] = "moonscript/util.lua",
 		["moonscript.version"] = "moonscript/version.lua",
