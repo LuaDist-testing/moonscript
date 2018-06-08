@@ -102,3 +102,42 @@ xam = {
 }
 
 
+kam = {
+  hello: 12
+  goodcheese:
+    "mmm"
+
+  yeah:
+    12 + 232
+
+  lets:
+    keepit going: true,
+      okay: "yeah"
+
+  more:
+    {
+      1, [x for x=1,10]
+    }
+
+  [{"one", "two"}]:
+    one_thing =>
+}
+
+-- TODO: both of these have undesirable output
+keepit going: true,
+  okay: "yeah",
+  workd: "okay"
+
+thing what:
+  "great", no:
+    "more"
+          okay: 123
+
+
+-- 
+thing what:
+  "great", no:
+    "more"
+okay: 123 -- a anon table
+
+nil

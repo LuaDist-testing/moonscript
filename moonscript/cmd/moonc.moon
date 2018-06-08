@@ -63,7 +63,7 @@ gettime = do
 -- compiles file to lua, returns lua code
 -- returns nil, error on error
 -- returns true if some option handled the output instead
-compile_file_text = (text, fname, opts={}) ->
+compile_file_text = (text, opts={}) ->
   parse = require "moonscript.parse"
   compile = require "moonscript.compile"
 
@@ -100,7 +100,7 @@ compile_file_text = (text, fname, opts={}) ->
 
   if opts.benchmark
     print table.concat {
-      fname,
+      opts.fname or "stdin",
       "Parse time  \t" .. format_time(parse_time),
       "Compile time\t" .. format_time(compile_time),
       ""
@@ -137,7 +137,7 @@ compile_and_write = (src, dest, opts={}) ->
     return true
 
   if opts.print
-    print text
+    print code
     return true
 
   write_file dest, code
@@ -182,7 +182,6 @@ path_to_target = (path, target_dir=nil, base_dir=nil) ->
   :normalize_dir
   :parse_dir
   :parse_file
-  :new_path
   :convert_path
   :gettime
   :format_time
